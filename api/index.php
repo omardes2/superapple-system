@@ -22,7 +22,7 @@ function bodyInput() {
 
 function currentUserRow($pdo) {
     if (empty($_SESSION['user_id'])) return null;
-    $stmt = $pdo->prepare("SELECT id, name, email, role, department, phone, work_start AS workStart, join_date AS joinDate FROM users WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT id, name, email, role, department, phone, work_start AS workStart, work_end AS workEnd, join_date AS joinDate FROM users WHERE id = ?");
     $stmt->execute([$_SESSION['user_id']]);
     $u = $stmt->fetch();
     return $u ?: null;
@@ -109,7 +109,7 @@ switch ($action) {
         if ($currentUser) {
             $isAdmin = $currentUser['role'] === 'admin';
 
-            $payload['users'] = $pdo->query("SELECT id, name, email, role, department, phone, work_start AS workStart, join_date AS joinDate FROM users")->fetchAll();
+            $payload['users'] = $pdo->query("SELECT id, name, email, role, department, phone, work_start AS workStart, work_end AS workEnd, join_date AS joinDate FROM users")->fetchAll();
 
             if ($isAdmin) {
                 $payload['clients'] = $pdo->query("SELECT id, name, contact_name AS contactName, phone, email, notes, created_at AS createdAt FROM clients ORDER BY name")->fetchAll();
@@ -194,16 +194,24 @@ switch ($action) {
         }
         $hash = password_hash($b['password'], PASSWORD_BCRYPT);
         try {
-            $stmt = $pdo->prepare("INSERT INTO users (name, email, password_hash, role, department, phone, work_start, join_date) VALUES (?, ?, ?, 'employee', ?, ?, ?, CURDATE())");
+            $stmt = $pdo->prepare("INSERT INTO users (name, email, password_hash, role, department, phone, work_start, work_end, join_date) VALUES (?, ?, ?, 'employee', ?, ?, ?, ?, CURDATE())");
             $stmt->execute([
                 trim($b['name']), strtolower(trim($b['email'])), $hash,
-                trim($b['department']) ?: 'عام', trim($b['phone']), $b['workStart'] ?: '08:00'
+                trim($b['department']) ?: 'عام', trim($b['phone']), $b['workStart'] ?: '08:00', $b['workEnd'] ?: '16:00'
             ]);
         } catch (PDOException $e) {
             respond(['error' => 'البريد الإلكتروني مستخدم مسبقًا'], 400);
         }
         $newId = $pdo->lastInsertId();
         pushNotification($pdo, $newId, "مرحبًا " . trim($b['name']) . "! تم إنشاء حسابك في نظام سوبر آبل.", 'welcome');
+        respond(['success' => true]);
+    }
+
+    case 'updateEmployeeSchedule': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("UPDATE users SET work_start = ?, work_end = ? WHERE id = ? AND role = 'employee'")
+            ->execute([$b['workStart'] ?: '08:00', $b['workEnd'] ?: '16:00', $b['id'] ?? 0]);
         respond(['success' => true]);
     }
 
@@ -315,13 +323,20 @@ switch ($action) {
     case 'checkOut': {
         $user = requireLogin($pdo);
         $today = date('Y-m-d');
-        $stmt = $pdo->prepare("SELECT id, check_out FROM attendance WHERE user_id = ? AND date = ?");
+        $stmt = $pdo->prepare("SELECT id, check_in, check_out FROM attendance WHERE user_id = ? AND date = ?");
         $stmt->execute([$user['id'], $today]);
         $rec = $stmt->fetch();
         if (!$rec || $rec['check_out']) respond(['error' => 'لا يوجد تسجيل حضور مفتوح']);
         $time = date('H:i:s');
         $pdo->prepare("UPDATE attendance SET check_out = ? WHERE id = ?")->execute([$time, $rec['id']]);
-        pushNotification($pdo, $user['id'], "تم تسجيل انصرافك الساعة {$time}. يوم موفق!", 'checkout');
+
+        $workedHours = round((strtotime($time) - strtotime($rec['check_in'])) / 3600, 1);
+        $expectedHours = round((strtotime($user['workEnd'] ?: '16:00:00') - strtotime($user['workStart'] ?: '08:00:00')) / 3600, 1);
+        $hoursMsg = $workedHours >= $expectedHours
+            ? "أكملت {$workedHours} ساعة من أصل {$expectedHours} المطلوبة ✅"
+            : "سجّلت {$workedHours} ساعة فقط من أصل {$expectedHours} المطلوبة (ناقص " . round($expectedHours - $workedHours, 1) . " ساعة)";
+
+        pushNotification($pdo, $user['id'], "تم تسجيل انصرافك الساعة {$time}. {$hoursMsg}", 'checkout');
         respond(['success' => true]);
     }
 

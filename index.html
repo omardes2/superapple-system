@@ -189,7 +189,7 @@ let state = {
   clients: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard',
-  taskModal: false, empModal: false, clientModal: false, toast: null
+  taskModal: false, empModal: false, clientModal: false, scheduleModal: null, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
 
@@ -281,7 +281,7 @@ async function handleAddEmployee(e){
   const f = e.target;
   const res = await apiPost('addEmployee', {
     name: f.name.value.trim(), email: f.email.value.trim(), password: f.password.value,
-    department: f.department.value.trim(), workStart: f.workStart.value, phone: f.phone.value.trim()
+    department: f.department.value.trim(), workStart: f.workStart.value, workEnd: f.workEnd.value, phone: f.phone.value.trim()
   });
   if(res.error){ showToast(res.error); return; }
   state.empModal = false;
@@ -292,6 +292,16 @@ async function handleRemoveEmployee(id){
   await apiPost('removeEmployee', { id });
   await refresh();
   showToast('تم حذف الموظف');
+}
+async function handleUpdateSchedule(e){
+  e.preventDefault();
+  const f = e.target;
+  const id = state.scheduleModal.split('|')[0];
+  const res = await apiPost('updateEmployeeSchedule', { id, workStart: f.workStart.value, workEnd: f.workEnd.value });
+  if(res.error){ showToast(res.error); return; }
+  state.scheduleModal = null;
+  await refresh();
+  showToast('تم تحديث دوام الموظف');
 }
 
 /* ---------------- CLIENTS (admin) ---------------- */
@@ -515,6 +525,7 @@ function renderAdmin(){
   ${state.empModal ? employeeModal() : ''}
   ${state.taskModal ? taskModal() : ''}
   ${state.clientModal ? clientModal() : ''}
+  ${state.scheduleModal ? scheduleModal() : ''}
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
@@ -699,13 +710,32 @@ function adminEmployees(){
   <div class="card">
     <div class="section-title">قائمة الموظفين (${employees.length}) <button class="btn btn-primary btn-sm" id="openEmpModal">+ إضافة موظف</button></div>
     ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد. اضغط "إضافة موظف" للبدء.</div>`:`
-    <table><thead><tr><th>الاسم</th><th>البريد الإلكتروني</th><th>واتساب</th><th>القسم</th><th>وقت الدوام</th><th>النقاط</th><th></th></tr></thead><tbody>
+    <table><thead><tr><th>الاسم</th><th>البريد الإلكتروني</th><th>واتساب</th><th>القسم</th><th>الدوام</th><th>النقاط</th><th></th></tr></thead><tbody>
     ${employees.map(e=>`
-      <tr><td>${e.name}</td><td style="color:var(--text-muted)">${e.email}</td><td style="color:var(--text-muted)" dir="ltr">${e.phone||'—'}</td><td>${e.department}</td><td>${e.workStart}</td>
+      <tr><td>${e.name}</td><td style="color:var(--text-muted)">${e.email}</td><td style="color:var(--text-muted)" dir="ltr">${e.phone||'—'}</td><td>${e.department}</td>
+      <td dir="ltr" style="font-size:11.5px;">${(e.workStart||'').slice(0,5)} – ${(e.workEnd||'').slice(0,5)} <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;margin-right:4px;" data-edit-schedule="${e.id}|${e.workStart}|${e.workEnd}">تعديل</button></td>
       <td><span class="badge badge-primary">${userPoints(e.id)}</span></td>
       <td><button class="btn btn-danger btn-sm" data-remove-emp="${e.id}">حذف</button></td></tr>`).join('')}
     </tbody></table>`}
   </div>`;
+}
+
+function scheduleModal(){
+  const [id, ws, we] = state.scheduleModal.split('|');
+  const emp = state.users.find(u=>u.id==id);
+  return `<div class="modal-bg" id="scheduleModalBg"><div class="modal">
+    <h3 class="modal-title">تعديل دوام: ${emp?emp.name:''}</h3>
+    <form id="scheduleForm">
+      <div class="form-row">
+        <div class="field"><label>بداية الدوام</label><input name="workStart" type="time" value="${ws}" required/></div>
+        <div class="field"><label>نهاية الدوام</label><input name="workEnd" type="time" value="${we}" required/></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="closeScheduleModal" style="flex:1;">إلغاء</button>
+        <button type="submit" class="btn btn-primary" style="flex:1;">حفظ</button>
+      </div>
+    </form>
+  </div></div>`;
 }
 
 function employeeModal(){
@@ -717,9 +747,12 @@ function employeeModal(){
       <div class="field"><label>كلمة السر المؤقتة</label><input name="password" type="password" required minlength="4"/></div>
       <div class="form-row">
         <div class="field"><label>القسم</label><input name="department" placeholder="مثال: المحتوى"/></div>
-        <div class="field"><label>وقت بدء الدوام</label><input name="workStart" type="time" value="${state.settings.workStart}"/></div>
+        <div class="field"><label>رقم الواتساب</label><input name="phone" required placeholder="970591234567"/></div>
       </div>
-      <div class="field"><label>رقم الواتساب (مع كود الدولة، بدون + أو أصفار)</label><input name="phone" required placeholder="مثال: 970591234567"/></div>
+      <div class="form-row">
+        <div class="field"><label>بداية الدوام</label><input name="workStart" type="time" value="${state.settings.workStart}"/></div>
+        <div class="field"><label>نهاية الدوام</label><input name="workEnd" type="time" value="16:00"/></div>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="closeEmpModal" style="flex:1;">إلغاء</button>
         <button type="submit" class="btn btn-primary" style="flex:1;">إضافة</button>
@@ -765,17 +798,31 @@ function taskCard(t, adminView){
   </div>`;
 }
 
+function hoursDiff(t1, t2){
+  if(!t1 || !t2) return null;
+  const [h1,m1] = t1.split(':').map(Number);
+  const [h2,m2] = t2.split(':').map(Number);
+  return Math.round(((h2*60+m2)-(h1*60+m1))/6)/10;
+}
+function expectedHours(u){
+  return hoursDiff(u?.workStart||'08:00', u?.workEnd||'16:00') || 8;
+}
+
 function adminAttendance(){
   const employees = state.users.filter(u=>u.role==='employee');
   const dates = [...new Set(state.attendance.map(a=>a.date))].sort().reverse().slice(0,14);
   return `
   <div class="card">
-    <div class="section-title">سجل الحضور (آخر الأيام المسجّلة)</div>
+    <div class="section-title">سجل الحضور (آخر الأيام المسجّلة) <span style="font-size:11px;color:var(--text-faint);font-weight:600;">الساعات المطلوبة محسوبة حسب دوام كل موظف</span></div>
     ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد</div>`:`
-    <table><thead><tr><th>الموظف</th>${dates.map(d=>`<th>${fmtDate(d)}</th>`).join('')}</tr></thead><tbody>
-    ${employees.map(e=>`<tr><td>${e.name}</td>${dates.map(d=>{
+    <table><thead><tr><th>الموظف</th><th>الدوام المطلوب</th>${dates.map(d=>`<th>${fmtDate(d)}</th>`).join('')}</tr></thead><tbody>
+    ${employees.map(e=>`<tr><td>${e.name}</td><td style="font-size:11px;color:var(--text-faint);" dir="ltr">${expectedHours(e)}س</td>${dates.map(d=>{
       const r = state.attendance.find(a=>a.userId===e.id && a.date===d);
-      return `<td>${r?statusBadge(r.status):`<button class="btn btn-ghost btn-sm" data-mark-absent="${e.id}|${d}" style="padding:4px 8px;font-size:11px;">تعليم غياب</button>`}</td>`;
+      if(!r) return `<td><button class="btn btn-ghost btn-sm" data-mark-absent="${e.id}|${d}" style="padding:4px 8px;font-size:11px;">تعليم غياب</button></td>`;
+      const worked = hoursDiff(r.checkIn, r.checkOut);
+      const exp = expectedHours(e);
+      const hoursLine = r.checkOut ? `<div style="font-size:10.5px;margin-top:3px;color:${worked>=exp?'var(--success)':'var(--warning)'};">${worked}س${worked<exp?' ⚠️':''}</div>` : '';
+      return `<td>${statusBadge(r.status)}${hoursLine}</td>`;
     }).join('')}</tr>`).join('')}
     </tbody></table>`}
   </div>`;
@@ -992,11 +1039,16 @@ function empTasks(){
 
 function empAttendance(){
   const mine = state.attendance.filter(a=>a.userId===state.currentUser.id).sort((a,b)=>b.date.localeCompare(a.date));
+  const exp = expectedHours(state.currentUser);
   return `<div class="card">
-    <div class="section-title">سجل دوامي</div>
+    <div class="section-title">سجل دوامي <span style="font-size:11px;color:var(--text-faint);font-weight:600;">دوامك المطلوب: ${exp} ساعة يوميًا</span></div>
     ${mine.length===0?`<div class="empty">لا يوجد سجل دوام بعد</div>`:`
-    <table><thead><tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th></tr></thead><tbody>
-    ${mine.map(a=>`<tr><td>${fmtDate(a.date)}</td><td>${a.checkIn||'—'}</td><td>${a.checkOut||'—'}</td><td>${statusBadge(a.status)}</td></tr>`).join('')}
+    <table><thead><tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>ساعات العمل</th><th>الحالة</th></tr></thead><tbody>
+    ${mine.map(a=>{
+      const worked = hoursDiff(a.checkIn, a.checkOut);
+      const hoursTxt = a.checkOut ? `<span style="color:${worked>=exp?'var(--success)':'var(--warning)'};font-weight:700;">${worked}س${worked<exp?' ⚠️':' ✅'}</span>` : '—';
+      return `<tr><td>${fmtDate(a.date)}</td><td>${a.checkIn||'—'}</td><td>${a.checkOut||'—'}</td><td>${hoursTxt}</td><td>${statusBadge(a.status)}</td></tr>`;
+    }).join('')}
     </tbody></table>`}
   </div>`;
 }
@@ -1054,6 +1106,13 @@ function attachAppEvents(){
   document.getElementById('closeEmpModal')?.addEventListener('click', ()=>{ state.empModal=false; render(); });
   document.getElementById('empModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='empModalBg'){ state.empModal=false; render(); }});
   document.getElementById('empForm')?.addEventListener('submit', handleAddEmployee);
+
+  document.querySelectorAll('[data-edit-schedule]').forEach(el=>{
+    el.addEventListener('click', ()=>{ state.scheduleModal = el.getAttribute('data-edit-schedule'); render(); });
+  });
+  document.getElementById('closeScheduleModal')?.addEventListener('click', ()=>{ state.scheduleModal=null; render(); });
+  document.getElementById('scheduleModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='scheduleModalBg'){ state.scheduleModal=null; render(); }});
+  document.getElementById('scheduleForm')?.addEventListener('submit', handleUpdateSchedule);
 
   document.getElementById('openClientModal')?.addEventListener('click', ()=>{ state.clientModal=true; render(); });
   document.getElementById('closeClientModal')?.addEventListener('click', ()=>{ state.clientModal=false; render(); });
