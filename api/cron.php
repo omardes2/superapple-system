@@ -20,6 +20,11 @@ if (($_GET['key'] ?? '') !== CRON_SECRET) {
     die('ممنوع: مفتاح غير صحيح');
 }
 
+// الجمعة عطلة رسمية بالشركة — لا تنبيهات تأخير فيها
+if (date('N') == 5) {
+    die('اليوم جمعة (عطلة) — تم تخطي فحص التأخير.');
+}
+
 $today = date('Y-m-d');
 $now = time();
 $s = $pdo->query("SELECT grace_minutes FROM settings WHERE id = 1")->fetch();
