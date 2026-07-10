@@ -365,7 +365,10 @@ async function markAbsent(userId, date){
 
 /* ---------------- TASKS ---------------- */
 let selectedAssignees = [];
-function openTaskModal(){ selectedAssignees = []; state.taskModal = true; render(); }
+function openTaskModal(){ selectedAssignees = []; state.taskModal = true; state.adminTab = 'tasks'; render(); scrollToTaskForm(); }
+function scrollToTaskForm(){
+  setTimeout(()=>{ document.getElementById('taskInlinePanel')?.scrollIntoView({behavior:'smooth', block:'start'}); }, 50);
+}
 function toggleAssignee(id, btnEl){
   selectedAssignees = selectedAssignees.includes(id) ? selectedAssignees.filter(x=>x!==id) : [...selectedAssignees, id];
   if(btnEl) btnEl.classList.toggle('sel', selectedAssignees.includes(id));
@@ -546,7 +549,6 @@ function renderAdmin(){
     </div>
   </div>
   ${state.empModal ? employeeModal() : ''}
-  ${state.taskModal ? taskModal() : ''}
   ${state.clientModal ? clientModal() : ''}
   ${state.scheduleModal ? scheduleModal() : ''}
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
@@ -786,7 +788,8 @@ function employeeModal(){
 
 function adminTasks(){
   return `
-  <div class="section-title" style="margin-bottom:14px;">كل المهام (${state.tasks.length}) <button class="btn btn-primary btn-sm" id="openTaskModal">+ مهمة جديدة</button></div>
+  <div class="section-title" style="margin-bottom:14px;">كل المهام (${state.tasks.length}) ${state.taskModal?'':'<button class="btn btn-primary btn-sm" id="openTaskModal">+ مهمة جديدة</button>'}</div>
+  ${state.taskModal ? taskInlineForm() : ''}
   ${state.tasks.length===0?`<div class="card"><div class="empty">لا توجد مهام بعد. أنشئ أول مهمة لفريقك.</div></div>`:
   state.tasks.map(t=>taskCard(t, true)).join('')}
   `;
@@ -953,10 +956,10 @@ function notificationsList(all){
   </div>`;
 }
 
-function taskModal(){
+function taskInlineForm(){
   const employees = state.users.filter(u=>u.role==='employee');
-  return `<div class="modal-bg" id="taskModalBg"><div class="modal">
-    <h3 class="modal-title">إنشاء مهمة جديدة</h3>
+  return `<div class="card" id="taskInlinePanel" style="margin-bottom:16px;border-color:var(--accent);">
+    <div class="section-title">إنشاء مهمة جديدة <button type="button" class="btn btn-ghost btn-sm" id="closeTaskModal">إغلاق ✕</button></div>
     <form id="taskForm">
       <div class="field"><label>عنوان المهمة</label><input name="title" required/></div>
       <div class="field"><label>الوصف</label><textarea name="description" rows="3" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;"></textarea></div>
@@ -977,11 +980,10 @@ function taskModal(){
         </div>
       </div>
       <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="closeTaskModal" style="flex:1;">إلغاء</button>
         <button type="submit" class="btn btn-primary" style="flex:1;">إنشاء المهمة</button>
       </div>
     </form>
-  </div></div>`;
+  </div>`;
 }
 
 /* ---------------- EMPLOYEE APP ---------------- */
@@ -1187,7 +1189,6 @@ function attachAppEvents(){
   document.getElementById('openTaskModal')?.addEventListener('click', openTaskModal);
   document.getElementById('quickCreateTaskBtn')?.addEventListener('click', openTaskModal);
   document.getElementById('closeTaskModal')?.addEventListener('click', ()=>{ state.taskModal=false; render(); });
-  document.getElementById('taskModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='taskModalBg'){ state.taskModal=false; render(); }});
   document.getElementById('taskForm')?.addEventListener('submit', handleCreateTask);
   document.querySelectorAll('[data-assignee-chip]').forEach(el=>{
     el.addEventListener('click', ()=> toggleAssignee(el.getAttribute('data-assignee-chip'), el));
