@@ -68,22 +68,27 @@
 
   /* ---------- app shell ---------- */
   .shell{display:flex;min-height:100vh;}
-  .sidebar{width:246px;flex:none;background:var(--surface);border-left:1px solid var(--border);padding:22px 16px;display:flex;flex-direction:column;}
-  .sidebar .brand{padding:0 6px;margin-bottom:28px;}
-  .nav-item{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:var(--radius-sm);color:var(--text-muted);font-weight:700;font-size:14px;margin-bottom:4px;background:transparent;width:100%;text-align:right;}
-  .nav-item:hover{background:var(--surface-2);color:var(--text);}
-  .nav-item.active{background:var(--primary-tint);color:var(--primary);}
+  .sidebar{width:252px;flex:none;background:#17130E;padding:22px 16px;display:flex;flex-direction:column;}
+  .sidebar .brand{padding:0 6px;margin-bottom:24px;}
+  .sidebar .brand-name{color:#fff;}
+  .sidebar .brand-name span{color:var(--accent);}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:var(--radius-sm);color:rgba(255,255,255,0.55);font-weight:700;font-size:14px;margin-bottom:2px;background:transparent;width:100%;text-align:right;}
+  .nav-item:hover{background:rgba(255,255,255,0.06);color:#fff;}
+  .nav-item.active{background:var(--accent);color:#1A1408;}
   .nav-dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.5;flex:none;}
-  .sidebar-foot{margin-top:auto;padding-top:16px;border-top:1px solid var(--border);}
+  .sidebar-foot{margin-top:auto;padding-top:16px;border-top:1px solid rgba(255,255,255,0.1);}
   .user-chip{display:flex;align-items:center;gap:10px;padding:8px 6px;}
   .avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--accent));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:14px;flex:none;}
-  .user-chip-name{font-size:13.5px;font-weight:700;}
-  .user-chip-role{font-size:11.5px;color:var(--text-faint);}
+  .user-chip-name{font-size:13.5px;font-weight:700;color:#fff;}
+  .user-chip-role{font-size:11.5px;color:rgba(255,255,255,0.45);}
+  .sidebar .btn-ghost{color:rgba(255,255,255,0.55);border-color:rgba(255,255,255,0.15);}
+  .sidebar .btn-ghost:hover{color:var(--accent);border-color:var(--accent);}
 
-  .main{flex:1;padding:26px 32px;max-width:calc(100vw - 246px);}
-  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;}
+  .main{flex:1;padding:26px 32px;max-width:calc(100vw - 252px);}
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;gap:16px;}
   .page-title{font-size:22px;}
   .page-sub{color:var(--text-muted);font-size:13.5px;margin-top:4px;}
+  .topbar-actions{display:flex;align-items:center;gap:10px;flex:none;}
   .bell-btn{position:relative;width:40px;height:40px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:17px;}
   .bell-dot{position:absolute;top:8px;left:9px;width:8px;height:8px;border-radius:50%;background:var(--accent);border:2px solid var(--surface);}
 
@@ -98,6 +103,27 @@
   .stat-label{font-size:12.5px;color:var(--text-muted);font-weight:700;margin-bottom:8px;}
   .stat-value{font-size:26px;font-weight:800;}
   .stat-sub{font-size:12px;color:var(--text-faint);margin-top:6px;}
+
+  .stat-card-v2{display:flex;flex-direction:column;gap:12px;}
+  .stat-icon{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:17px;flex:none;}
+  .stat-trend{font-size:11.5px;font-weight:700;display:inline-flex;align-items:center;gap:3px;}
+  .stat-trend.up{color:var(--success);}
+  .stat-trend.down{color:var(--danger);}
+
+  .kanban-wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start;}
+  @media(max-width:1100px){.kanban-wrap{grid-template-columns:1fr;}}
+  .kanban-col{border-radius:var(--radius);overflow:hidden;border:1px solid var(--border);}
+  .kanban-col-head{padding:12px 14px;font-weight:800;font-size:13.5px;display:flex;align-items:center;justify-content:space-between;}
+  .kanban-col-body{padding:10px;background:var(--surface-2);min-height:60px;max-height:420px;overflow-y:auto;}
+  .kanban-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:9px;}
+  .kanban-card-title{font-weight:700;font-size:13px;margin-bottom:6px;line-height:1.5;}
+  .kanban-card-meta{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--text-faint);}
+
+  .activity-item{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);align-items:flex-start;}
+  .activity-item:last-child{border-bottom:none;}
+  .activity-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);margin-top:6px;flex:none;}
+  .activity-text{font-size:13px;line-height:1.6;}
+  .activity-time{font-size:11px;color:var(--text-faint);margin-top:2px;}
 
   .section-title{font-size:15.5px;font-weight:800;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;}
 
@@ -208,6 +234,13 @@ function todayStr(){ return new Date().toISOString().slice(0,10); }
 function nowTime(){ const d=new Date(); return d.toTimeString().slice(0,5); }
 function fmtDate(d){ return new Date(d).toLocaleDateString('ar-EG',{day:'numeric',month:'short'}); }
 function fmtDateTime(d){ return new Date(d).toLocaleString('ar-EG',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }
+function timeAgo(d){
+  const diff = Math.floor((new Date() - new Date(d))/1000);
+  if(diff < 60) return 'الآن';
+  if(diff < 3600) return `قبل ${Math.floor(diff/60)} دقيقة`;
+  if(diff < 86400) return `قبل ${Math.floor(diff/3600)} ساعة`;
+  return `قبل ${Math.floor(diff/86400)} يوم`;
+}
 function showToast(msg){ state.toast = msg; render(); setTimeout(()=>{ state.toast=null; render(); }, 2600); }
 
 function userPoints(userId){
@@ -430,7 +463,10 @@ function renderAdmin(){
     <div class="main">
       <div class="topbar">
         <div><h1 class="page-title">${adminTitles()[state.adminTab]}</h1><p class="page-sub">${adminSubs()[state.adminTab]}</p></div>
-        ${notifBell()}
+        <div class="topbar-actions">
+          <button class="btn btn-primary btn-sm" id="quickCreateTaskBtn">+ مهمة جديدة</button>
+          ${notifBell()}
+        </div>
       </div>
       ${adminTabContent()}
     </div>
@@ -467,37 +503,111 @@ function adminDashboard(){
   const present = todayRecs.filter(a=>a.status==='present').length;
   const late = todayRecs.filter(a=>a.status==='late').length;
   const noRecord = employees.length - todayRecs.length;
-  const activeTasks = state.tasks.filter(t=>taskStatus(t)!=='done').length;
-  const doneTasks = state.tasks.filter(t=>taskStatus(t)==='done').length;
+
+  const now = new Date();
+  const weekAgo = new Date(now - 7*86400000);
+  const twoWeeksAgo = new Date(now - 14*86400000);
+
+  const doneTasks = state.tasks.filter(t=>taskStatus(t)==='done');
+  const progressTasks = state.tasks.filter(t=>taskStatus(t)==='progress');
+  const lateTasks = state.tasks.filter(t=>taskStatus(t)==='late');
+  const totalTasks = state.tasks.length;
+
+  const doneThisWeek = doneTasks.filter(t=>t.assignees.some(a=>a.completedAt && new Date(a.completedAt)>=weekAgo)).length;
+  const doneLastWeek = doneTasks.filter(t=>t.assignees.some(a=>a.completedAt && new Date(a.completedAt)>=twoWeeksAgo && new Date(a.completedAt)<weekAgo)).length;
+  const trend = (curr, prev) => {
+    if(prev===0) return curr>0 ? {dir:'up', text:'جديد'} : {dir:'flat', text:'—'};
+    const pct = Math.round(((curr-prev)/prev)*100);
+    return pct>=0 ? {dir:'up', text:`+${pct}%`} : {dir:'down', text:`${pct}%`};
+  };
+  const tTrend = trend(doneThisWeek, doneLastWeek);
+  const completionRate = totalTasks ? Math.round((doneTasks.length/totalTasks)*100) : 0;
+
   const top = leaderboard().slice(0,3);
+  const recentActivity = state.notifications.slice(0,6);
 
   return `
   ${whatsappBanner()}
   <div class="grid grid-4" style="margin-bottom:16px;">
-    <div class="card stat-card"><div class="stat-label">عدد الموظفين</div><div class="stat-value">${employees.length}</div></div>
-    <div class="card stat-card"><div class="stat-label">حاضرون اليوم</div><div class="stat-value" style="color:var(--success)">${present}</div><div class="stat-sub">${late} متأخر / ${noRecord} لم يسجل بعد</div></div>
-    <div class="card stat-card"><div class="stat-label">مهام قيد التنفيذ</div><div class="stat-value" style="color:var(--primary)">${activeTasks}</div></div>
-    <div class="card stat-card"><div class="stat-label">مهام مكتملة</div><div class="stat-value" style="color:var(--success)">${doneTasks}</div></div>
+    <div class="card stat-card stat-card-v2">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="stat-icon" style="background:var(--success-tint);color:var(--success);">✓</div>
+        <span class="stat-trend ${tTrend.dir}">${tTrend.dir==='up'?'▲':tTrend.dir==='down'?'▼':''} ${tTrend.text}</span>
+      </div>
+      <div><div class="stat-value">${doneTasks.length}</div><div class="stat-label" style="margin-bottom:0;">تم إنجازها</div></div>
+    </div>
+    <div class="card stat-card stat-card-v2">
+      <div class="stat-icon" style="background:var(--warning-tint);color:var(--warning);">⏳</div>
+      <div><div class="stat-value">${progressTasks.length}</div><div class="stat-label" style="margin-bottom:0;">قيد التنفيذ</div></div>
+    </div>
+    <div class="card stat-card stat-card-v2">
+      <div class="stat-icon" style="background:var(--danger-tint);color:var(--danger);">⚠️</div>
+      <div><div class="stat-value">${lateTasks.length}</div><div class="stat-label" style="margin-bottom:0;">متأخرة</div></div>
+    </div>
+    <div class="card stat-card stat-card-v2">
+      <div class="stat-icon" style="background:var(--primary-tint);color:var(--primary);">📋</div>
+      <div><div class="stat-value">${totalTasks}</div><div class="stat-label" style="margin-bottom:0;">إجمالي المهام</div></div>
+    </div>
   </div>
-  <div class="grid grid-2">
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="section-title">معدل الإنجاز الكلي <span class="badge badge-primary">${completionRate}%</span></div>
+    <div style="background:var(--surface-2);border-radius:100px;height:10px;overflow:hidden;">
+      <div style="background:var(--accent);height:100%;width:${completionRate}%;border-radius:100px;"></div>
+    </div>
+  </div>
+
+  <div class="section-title" style="margin-bottom:12px;">لوحة المهام</div>
+  <div class="kanban-wrap" style="margin-bottom:16px;">
+    ${kanbanColumn('قيد التنفيذ', progressTasks, 'var(--warning-tint)', 'var(--warning)')}
+    ${kanbanColumn('متأخرة', lateTasks, 'var(--danger-tint)', 'var(--danger)')}
+    ${kanbanColumn('مكتملة', doneTasks, 'var(--success-tint)', 'var(--success)')}
+  </div>
+
+  <div class="grid grid-3">
     <div class="card">
-      <div class="section-title">حالة الفريق اليوم</div>
-      ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد. أضف أول موظف من تبويب "الموظفون".</div>`:`
-      <table><thead><tr><th>الموظف</th><th>القسم</th><th>الحالة</th><th>وقت الحضور</th></tr></thead><tbody>
-      ${employees.map(e=>{
-        const r = todayRecs.find(a=>a.userId===e.id);
-        return `<tr><td>${e.name}</td><td>${e.department}</td><td>${r?statusBadge(r.status):'<span class="badge badge-muted">لم يسجل</span>'}</td><td>${r?.checkIn||'—'}</td></tr>`;
+      <div class="section-title">⚡ النشاط المباشر</div>
+      ${recentActivity.length===0?`<div class="empty">ما في نشاط بعد</div>`:recentActivity.map(n=>{
+        const u = state.users.find(u=>u.id===n.userId);
+        return `<div class="activity-item"><div class="activity-dot"></div><div><div class="activity-text"><b>${u?u.name:''}</b> — ${n.message}</div><div class="activity-time">${timeAgo(n.createdAt)}</div></div></div>`;
       }).join('')}
-      </tbody></table>`}
     </div>
     <div class="card">
-      <div class="section-title">🏆 الأعلى نقاطًا</div>
+      <div class="section-title">🏆 الموظفون الأكثر إنتاجية</div>
       ${top.length===0?`<div class="empty">لا توجد نقاط بعد</div>`:top.map((t,i)=>`
         <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${i<top.length-1?'border-bottom:1px solid var(--border);':''}">
           <div class="rank-pill">${i+1}</div>
           <div class="avatar" style="width:30px;height:30px;font-size:12px;">${t.u.name[0]}</div>
           <div style="flex:1;font-weight:700;font-size:13.5px;">${t.u.name}</div>
           <div style="font-weight:800;color:var(--primary);">${t.pts}</div>
+        </div>`).join('')}
+    </div>
+    <div class="card">
+      <div class="section-title">حالة الفريق اليوم</div>
+      ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد.</div>`:`
+      ${employees.slice(0,6).map(e=>{
+        const r = todayRecs.find(a=>a.userId===e.id);
+        return `<div class="assignee-row"><span>${e.name}</span>${r?statusBadge(r.status):'<span class="badge badge-muted">لم يسجل</span>'}</div>`;
+      }).join('')}
+      <p style="font-size:11.5px;color:var(--text-faint);margin-top:10px;">${present} حاضر / ${late} متأخر / ${noRecord} لم يسجل</p>`}
+    </div>
+  </div>`;
+}
+
+function kanbanColumn(title, tasks, bg, fg){
+  return `
+  <div class="kanban-col">
+    <div class="kanban-col-head" style="background:${bg};color:${fg};">
+      <span>${title}</span><span class="badge" style="background:rgba(255,255,255,0.5);color:${fg};">${tasks.length}</span>
+    </div>
+    <div class="kanban-col-body">
+      ${tasks.length===0?`<div class="empty" style="padding:16px;">لا توجد مهام</div>`:tasks.slice(0,8).map(t=>`
+        <div class="kanban-card">
+          <div class="kanban-card-title">${t.title}</div>
+          <div class="kanban-card-meta">
+            <span>${t.deadline?fmtDate(t.deadline):'بدون موعد'}</span>
+            <span>${t.assignees.map(a=>{const u=state.users.find(u=>u.id===a.userId);return u?u.name.split(' ')[0]:'';}).join('، ')}</span>
+          </div>
         </div>`).join('')}
     </div>
   </div>`;
@@ -859,6 +969,7 @@ function attachAppEvents(){
   document.getElementById('empForm')?.addEventListener('submit', handleAddEmployee);
 
   document.getElementById('openTaskModal')?.addEventListener('click', openTaskModal);
+  document.getElementById('quickCreateTaskBtn')?.addEventListener('click', openTaskModal);
   document.getElementById('closeTaskModal')?.addEventListener('click', ()=>{ state.taskModal=false; render(); });
   document.getElementById('taskModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='taskModalBg'){ state.taskModal=false; render(); }});
   document.getElementById('taskForm')?.addEventListener('submit', handleCreateTask);
