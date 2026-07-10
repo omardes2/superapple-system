@@ -280,9 +280,9 @@ async function markAbsent(userId, date){
 /* ---------------- TASKS ---------------- */
 let selectedAssignees = [];
 function openTaskModal(){ selectedAssignees = []; state.taskModal = true; render(); }
-function toggleAssignee(id){
+function toggleAssignee(id, btnEl){
   selectedAssignees = selectedAssignees.includes(id) ? selectedAssignees.filter(x=>x!==id) : [...selectedAssignees, id];
-  render();
+  if(btnEl) btnEl.classList.toggle('sel', selectedAssignees.includes(id));
 }
 async function handleCreateTask(e){
   e.preventDefault();
@@ -864,7 +864,7 @@ function attachAppEvents(){
   document.getElementById('taskModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='taskModalBg'){ state.taskModal=false; render(); }});
   document.getElementById('taskForm')?.addEventListener('submit', handleCreateTask);
   document.querySelectorAll('[data-assignee-chip]').forEach(el=>{
-    el.addEventListener('click', ()=> toggleAssignee(el.getAttribute('data-assignee-chip')));
+    el.addEventListener('click', ()=> toggleAssignee(el.getAttribute('data-assignee-chip'), el));
   });
 
   document.querySelectorAll('[data-remove-emp]').forEach(el=>{
