@@ -70,7 +70,9 @@
   .auth-note{margin-top:18px;font-size:12.5px;color:var(--text-faint);line-height:1.9;background:var(--surface-2);padding:12px 14px;border-radius:var(--radius-sm);}
 
   /* ---------- app shell ---------- */
-  .shell{display:flex;min-height:100vh;}
+  .shell{display:flex;min-height:100vh;position:relative;}
+  .mobile-topbar{display:none;}
+  .mobile-overlay{display:none;}
   .sidebar{width:252px;flex:none;background:#17130E;padding:22px 16px;display:flex;flex-direction:column;}
   .sidebar .brand{padding:0 6px;margin-bottom:24px;}
   .sidebar .brand-name{color:#fff;}
@@ -186,6 +188,35 @@
   .combo-item-new{color:var(--accent);}
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:12px 20px;border-radius:100px;font-size:13.5px;font-weight:600;z-index:100;box-shadow:var(--shadow);}
   .rank-pill{width:26px;height:26px;border-radius:50%;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:var(--text-muted);}
+
+  /* ===== موبايل: قائمة منسدلة بدل السايدبار الثابت ===== */
+  @media(max-width:860px){
+    .shell{flex-direction:column;}
+    .mobile-topbar{display:flex;align-items:center;justify-content:space-between;background:#17130E;padding:12px 16px;position:sticky;top:0;z-index:60;}
+    .mobile-topbar .brand{margin-bottom:0;}
+    .mobile-topbar .brand-name{color:#fff;font-size:14px;}
+    .mobile-topbar .brand-name span{color:var(--accent);}
+    .mobile-topbar .brand-tagline{display:none;}
+    .hamburger-btn{width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;font-size:18px;}
+    .sidebar{position:fixed;top:0;right:0;height:100vh;width:78vw;max-width:300px;z-index:80;transform:translateX(100%);transition:transform .25s ease;box-shadow:-8px 0 24px rgba(0,0,0,0.25);}
+    .sidebar.mobile-open{transform:translateX(0);}
+    .sidebar .brand{display:none;}
+    .mobile-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:70;}
+    .mobile-overlay.show{display:block;}
+    .main{max-width:100%;width:100%;padding:16px;}
+    .topbar{flex-wrap:wrap;gap:10px;}
+    .page-title{font-size:16px;}
+    .grid-4{grid-template-columns:repeat(2,1fr);}
+    .grid-3{grid-template-columns:1fr;}
+    .grid-2{grid-template-columns:1fr;}
+    .kanban-wrap{grid-template-columns:1fr;}
+    table{font-size:11.5px;}
+    th, td{padding:7px 6px;}
+    .modal{max-width:94vw;padding:20px;}
+    .task-meta{gap:6px;}
+    .card{padding:13px;}
+    .fingerprint-circle{width:100px;height:100px;}
+  }
 </style>
 </head>
 <body>
@@ -205,7 +236,7 @@ let state = {
   clients: [], leaveRequests: [], departments: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', reportFilter: { preset: 'thisMonth', from: '', to: '' },
-  taskModal: false, empModal: false, clientModal: false, departmentModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, toast: null
+  taskModal: false, empModal: false, clientModal: false, departmentModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
 
@@ -569,6 +600,13 @@ function render(){
 function brandHeader(showTagline){
   return `<div class="brand"><div class="brand-mark"><img src="assets/logo-small.png" alt="سوبر آبل"/></div><div><div class="brand-name">سوبر <span>آبل</span></div>${showTagline?`<div class="brand-tagline">إدارة المهام والفريق</div>`:''}</div></div>`;
 }
+function mobileTopbar(){
+  return `<div class="mobile-topbar">
+    <button class="hamburger-btn" id="hamburgerBtn">☰</button>
+    ${brandHeader()}
+    <div style="width:38px;"></div>
+  </div>`;
+}
 
 function renderSetup(){
   return `
@@ -657,7 +695,9 @@ function renderAdmin(){
   ];
   return `
   <div class="shell">
-    <div class="sidebar">
+    ${mobileTopbar()}
+    <div class="mobile-overlay ${state.mobileMenuOpen?'show':''}" id="mobileOverlay"></div>
+    <div class="sidebar ${state.mobileMenuOpen?'mobile-open':''}">
       ${brandHeader(true)}
       ${sidebarNav(nav, null, state.adminTab)}
       <div class="sidebar-foot">
@@ -1329,7 +1369,9 @@ function renderEmployee(){
   ];
   return `
   <div class="shell">
-    <div class="sidebar">
+    ${mobileTopbar()}
+    <div class="mobile-overlay ${state.mobileMenuOpen?'show':''}" id="mobileOverlay"></div>
+    <div class="sidebar ${state.mobileMenuOpen?'mobile-open':''}">
       ${brandHeader(true)}
       ${sidebarNav(nav, null, state.empTab)}
       <div class="sidebar-foot">
@@ -1520,10 +1562,13 @@ function empReport(){
 /* ---------------- EVENT WIRING ---------------- */
 function attachAppEvents(){
   document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
+  document.getElementById('hamburgerBtn')?.addEventListener('click', ()=>{ state.mobileMenuOpen = !state.mobileMenuOpen; render(); });
+  document.getElementById('mobileOverlay')?.addEventListener('click', ()=>{ state.mobileMenuOpen = false; render(); });
   document.querySelectorAll('[data-tab]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const tab = el.getAttribute('data-tab');
       if(state.currentUser.role==='admin') state.adminTab = tab; else state.empTab = tab;
+      state.mobileMenuOpen = false;
       render();
     });
   });
