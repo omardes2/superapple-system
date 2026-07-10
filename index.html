@@ -548,6 +548,13 @@ async function toggleAssigneeDone(taskId, userId){
   if(res.error){ showToast(res.error); return; }
   await refresh();
 }
+async function handleRemoveTask(id){
+  if(!confirm('هل أنت متأكد من حذف هذه المهمة نهائيًا؟')) return;
+  const res = await apiPost('removeTask', { id });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  showToast('تم حذف المهمة');
+}
 
 /* ---------------- DERIVED / REPORTS ---------------- */
 function computeReport(userId, from, to){
@@ -1092,7 +1099,10 @@ function taskCard(t, adminView){
   <div class="task-card">
     <div class="task-top">
       <div><div class="task-title">${t.title}</div>${t.description?`<div class="task-desc">${t.description}</div>`:''}</div>
-      ${statusBadge(statusKey)}
+      <div style="display:flex;align-items:center;gap:6px;flex:none;">
+        ${statusBadge(statusKey)}
+        ${adminView?`<button class="btn btn-danger btn-sm" style="padding:4px 9px;font-size:11px;" data-remove-task="${t.id}">حذف</button>`:''}
+      </div>
     </div>
     <div class="task-meta">
       ${statusBadge(t.priority)}
@@ -1671,6 +1681,9 @@ function attachAppEvents(){
   document.getElementById('clientForm')?.addEventListener('submit', handleAddClient);
   document.querySelectorAll('[data-remove-client]').forEach(el=>{
     el.addEventListener('click', ()=> handleRemoveClient(el.getAttribute('data-remove-client')));
+  });
+  document.querySelectorAll('[data-remove-task]').forEach(el=>{
+    el.addEventListener('click', ()=> handleRemoveTask(el.getAttribute('data-remove-task')));
   });
 
   document.getElementById('openDepartmentModal')?.addEventListener('click', ()=>{ state.departmentModal=true; render(); });

@@ -443,6 +443,13 @@ switch ($action) {
         respond(['success' => true]);
     }
 
+    case 'removeTask': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("DELETE FROM tasks WHERE id = ?")->execute([$b['id'] ?? 0]);
+        respond(['success' => true]);
+    }
+
     /* ============ بصمة الحضور الحقيقية (WebAuthn) ============ */
     case 'webauthnRegisterStart': {
         $user = requireLogin($pdo);
