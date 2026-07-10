@@ -6,6 +6,7 @@
 <title>سوبر آبل | نظام إدارة الفريق</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
   :root{
     --bg:#F7F6F3;
@@ -489,6 +490,68 @@ function leaderboard(){
   return state.users.filter(u=>u.role==='employee').map(u=>({u, pts: userPoints(u.id)})).sort((a,b)=>b.pts-a.pts);
 }
 
+function monthlyCompletionSeries(){
+  const months = [];
+  const now = new Date();
+  for(let i=5;i>=0;i--){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    months.push({label: d.toLocaleDateString('ar-EG',{month:'short'}), year: d.getFullYear(), month: d.getMonth()});
+  }
+  const data = months.map(m=>{
+    let count = 0;
+    state.tasks.forEach(t=>{
+      if(t.assignees.some(a=>a.completedAt && new Date(a.completedAt).getFullYear()===m.year && new Date(a.completedAt).getMonth()===m.month)) count++;
+    });
+    return count;
+  });
+  return { labels: months.map(m=>m.label), data };
+}
+
+function weeklyProductivitySeries(){
+  const days = [];
+  for(let i=6;i>=0;i--){ const d = new Date(); d.setDate(d.getDate()-i); days.push(d); }
+  const toKey = d => d.toISOString().slice(0,10);
+  const labels = days.map(d=>d.toLocaleDateString('ar-EG',{weekday:'short'}));
+  const created = days.map(d=>{
+    const k = toKey(d);
+    return state.tasks.filter(t=>t.createdAt && t.createdAt.slice(0,10)===k).length;
+  });
+  const completed = days.map(d=>{
+    const k = toKey(d);
+    return state.tasks.filter(t=>t.assignees.some(a=>a.completedAt && a.completedAt.slice(0,10)===k)).length;
+  });
+  return { labels, created, completed };
+}
+
+let charts = {};
+function renderDashboardCharts(){
+  if(typeof Chart === 'undefined') return;
+  Object.values(charts).forEach(c=>c && c.destroy());
+  charts = {};
+
+  const monthlyEl = document.getElementById('monthlyChart');
+  if(monthlyEl){
+    const s = monthlyCompletionSeries();
+    charts.monthly = new Chart(monthlyEl, {
+      type: 'line',
+      data: { labels: s.labels, datasets: [{ label: 'مهام منجزة', data: s.data, borderColor: '#1FAE7A', backgroundColor: 'rgba(31,174,122,0.12)', fill: true, tension: 0.4, pointRadius: 3 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+    });
+  }
+  const weeklyEl = document.getElementById('weeklyChart');
+  if(weeklyEl){
+    const s = weeklyProductivitySeries();
+    charts.weekly = new Chart(weeklyEl, {
+      type: 'bar',
+      data: { labels: s.labels, datasets: [
+        { label: 'مهام منجزة', data: s.completed, backgroundColor: '#1FAE7A', borderRadius: 4 },
+        { label: 'مهام جديدة', data: s.created, backgroundColor: '#FDB92A', borderRadius: 4 },
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo' } } } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+    });
+  }
+}
+
 /* ================= RENDER ================= */
 function render(){
   const app = document.getElementById('app');
@@ -710,6 +773,19 @@ function adminDashboard(){
     ${kanbanColumn('قيد التنفيذ', progressTasks, 'var(--warning-tint)', 'var(--warning)')}
     ${kanbanColumn('متأخرة', lateTasks, 'var(--danger-tint)', 'var(--danger)')}
     ${kanbanColumn('مكتملة', doneTasks, 'var(--success-tint)', 'var(--success)')}
+  </div>
+
+  <div class="grid grid-2" style="margin-bottom:16px;">
+    <div class="card">
+      <div class="section-title">📈 نمو وإنجاز المهام الشهري</div>
+      <p style="font-size:11px;color:var(--text-faint);margin-top:-6px;margin-bottom:10px;">معدل إغلاق وتسليم المهام خلال آخر 6 أشهر</p>
+      <div style="height:230px;"><canvas id="monthlyChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="section-title">📊 إنتاجية المهام الأسبوعية</div>
+      <p style="font-size:11px;color:var(--text-faint);margin-top:-6px;margin-bottom:10px;">مقارنة بين المهام الجديدة والمنجزة خلال آخر 7 أيام</p>
+      <div style="height:230px;"><canvas id="weeklyChart"></canvas></div>
+    </div>
   </div>
 
   <div class="grid grid-3">
@@ -1581,6 +1657,10 @@ function attachAppEvents(){
     await refresh();
     showToast('تم حفظ قواعد النقاط');
   });
+
+  if(state.currentUser.role==='admin' && state.adminTab==='dashboard'){
+    setTimeout(renderDashboardCharts, 0);
+  }
 }
 
 init();
