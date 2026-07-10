@@ -7,6 +7,7 @@
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/webauthn-lib/autoload.php';
 
 function respond($data, $code = 200) {
     http_response_code($code);
@@ -25,6 +26,11 @@ function currentUserRow($pdo) {
     $stmt = $pdo->prepare("SELECT id, name, email, role, department, phone, work_start AS workStart, work_end AS workEnd, join_date AS joinDate FROM users WHERE id = ?");
     $stmt->execute([$_SESSION['user_id']]);
     $u = $stmt->fetch();
+    if ($u) {
+        $stmt2 = $pdo->prepare("SELECT COUNT(*) c FROM webauthn_credentials WHERE user_id = ?");
+        $stmt2->execute([$u['id']]);
+        $u['hasWebauthn'] = (bool) $stmt2->fetch()['c'];
+    }
     return $u ?: null;
 }
 
@@ -87,6 +93,55 @@ function pushNotification($pdo, $userId, $message, $type) {
     $stmt->execute([$userId]);
     $u = $stmt->fetch();
     if ($u && $u['phone']) sendWhatsAppCloud($pdo, $u['phone'], $message);
+}
+
+function getWebAuthn() {
+    $host = preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST'] ?? 'localhost');
+    return new \lbuchs\WebAuthn\WebAuthn('سوبر آبل', $host, ['none'], true);
+}
+
+function doCheckIn($pdo, $user, $lat, $lng) {
+    $today = date('Y-m-d');
+    $stmt = $pdo->prepare("SELECT id FROM attendance WHERE user_id = ? AND date = ?");
+    $stmt->execute([$user['id'], $today]);
+    if ($stmt->fetch()) return ['error' => 'تم تسجيل حضورك اليوم بالفعل'];
+
+    $time = date('H:i:s');
+    $s = $pdo->query("SELECT grace_minutes, points_attendance, penalty_late FROM settings WHERE id = 1")->fetch();
+    $workStart = $user['workStart'] ?: '08:00:00';
+    $isLate = (strtotime($time) > strtotime($workStart) + ((int) $s['grace_minutes'] * 60));
+    $status = $isLate ? 'late' : 'present';
+
+    $pdo->prepare("INSERT INTO attendance (user_id, date, check_in, status, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?)")
+        ->execute([$user['id'], $today, $time, $status, $lat, $lng]);
+
+    if ($isLate) {
+        $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'تأخير عن موعد الدوام')")->execute([$user['id'], -(int) $s['penalty_late']]);
+        pushNotification($pdo, $user['id'], "تم تسجيل حضورك الساعة {$time} (متأخر). تم خصم {$s['penalty_late']} نقطة.", 'late');
+    } else {
+        $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'حضور في الوقت المحدد')")->execute([$user['id'], (int) $s['points_attendance']]);
+        pushNotification($pdo, $user['id'], "تم تسجيل حضورك الساعة {$time}. +{$s['points_attendance']} نقطة.", 'checkin');
+    }
+    return ['success' => true];
+}
+
+function doCheckOut($pdo, $user) {
+    $today = date('Y-m-d');
+    $stmt = $pdo->prepare("SELECT id, check_in, check_out FROM attendance WHERE user_id = ? AND date = ?");
+    $stmt->execute([$user['id'], $today]);
+    $rec = $stmt->fetch();
+    if (!$rec || $rec['check_out']) return ['error' => 'لا يوجد تسجيل حضور مفتوح'];
+    $time = date('H:i:s');
+    $pdo->prepare("UPDATE attendance SET check_out = ? WHERE id = ?")->execute([$time, $rec['id']]);
+
+    $workedHours = round((strtotime($time) - strtotime($rec['check_in'])) / 3600, 1);
+    $expectedHours = round((strtotime($user['workEnd'] ?: '16:00:00') - strtotime($user['workStart'] ?: '08:00:00')) / 3600, 1);
+    $hoursMsg = $workedHours >= $expectedHours
+        ? "أكملت {$workedHours} ساعة من أصل {$expectedHours} المطلوبة ✅"
+        : "سجّلت {$workedHours} ساعة فقط من أصل {$expectedHours} المطلوبة (ناقص " . round($expectedHours - $workedHours, 1) . " ساعة)";
+
+    pushNotification($pdo, $user['id'], "تم تسجيل انصرافك الساعة {$time}. {$hoursMsg}", 'checkout');
+    return ['success' => true];
 }
 
 $action = $_GET['action'] ?? '';
@@ -308,51 +363,17 @@ switch ($action) {
     /* ============ الدوام ============ */
     case 'checkIn': {
         $user = requireLogin($pdo);
-        $today = date('Y-m-d');
-        $stmt = $pdo->prepare("SELECT id FROM attendance WHERE user_id = ? AND date = ?");
-        $stmt->execute([$user['id'], $today]);
-        if ($stmt->fetch()) respond(['error' => 'تم تسجيل حضورك اليوم بالفعل']);
         $b = bodyInput();
         $lat = is_numeric($b['lat'] ?? null) ? $b['lat'] : null;
         $lng = is_numeric($b['lng'] ?? null) ? $b['lng'] : null;
-
-        $time = date('H:i:s');
-        $s = $pdo->query("SELECT grace_minutes, points_attendance, penalty_late FROM settings WHERE id = 1")->fetch();
-        $workStart = $user['workStart'] ?: '08:00:00';
-        $isLate = (strtotime($time) > strtotime($workStart) + ((int) $s['grace_minutes'] * 60));
-        $status = $isLate ? 'late' : 'present';
-
-        $pdo->prepare("INSERT INTO attendance (user_id, date, check_in, status, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?)")
-            ->execute([$user['id'], $today, $time, $status, $lat, $lng]);
-
-        if ($isLate) {
-            $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'تأخير عن موعد الدوام')")->execute([$user['id'], -(int) $s['penalty_late']]);
-            pushNotification($pdo, $user['id'], "تم تسجيل حضورك الساعة {$time} (متأخر). تم خصم {$s['penalty_late']} نقطة.", 'late');
-        } else {
-            $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'حضور في الوقت المحدد')")->execute([$user['id'], (int) $s['points_attendance']]);
-            pushNotification($pdo, $user['id'], "تم تسجيل حضورك الساعة {$time}. +{$s['points_attendance']} نقطة.", 'checkin');
-        }
-        respond(['success' => true]);
+        $result = doCheckIn($pdo, $user, $lat, $lng);
+        respond($result, isset($result['error']) ? 400 : 200);
     }
 
     case 'checkOut': {
         $user = requireLogin($pdo);
-        $today = date('Y-m-d');
-        $stmt = $pdo->prepare("SELECT id, check_in, check_out FROM attendance WHERE user_id = ? AND date = ?");
-        $stmt->execute([$user['id'], $today]);
-        $rec = $stmt->fetch();
-        if (!$rec || $rec['check_out']) respond(['error' => 'لا يوجد تسجيل حضور مفتوح']);
-        $time = date('H:i:s');
-        $pdo->prepare("UPDATE attendance SET check_out = ? WHERE id = ?")->execute([$time, $rec['id']]);
-
-        $workedHours = round((strtotime($time) - strtotime($rec['check_in'])) / 3600, 1);
-        $expectedHours = round((strtotime($user['workEnd'] ?: '16:00:00') - strtotime($user['workStart'] ?: '08:00:00')) / 3600, 1);
-        $hoursMsg = $workedHours >= $expectedHours
-            ? "أكملت {$workedHours} ساعة من أصل {$expectedHours} المطلوبة ✅"
-            : "سجّلت {$workedHours} ساعة فقط من أصل {$expectedHours} المطلوبة (ناقص " . round($expectedHours - $workedHours, 1) . " ساعة)";
-
-        pushNotification($pdo, $user['id'], "تم تسجيل انصرافك الساعة {$time}. {$hoursMsg}", 'checkout');
-        respond(['success' => true]);
+        $result = doCheckOut($pdo, $user);
+        respond($result, isset($result['error']) ? 400 : 200);
     }
 
     case 'markAbsent': {
@@ -465,6 +486,107 @@ switch ($action) {
         requireAdmin($pdo);
         $b = bodyInput();
         $pdo->prepare("DELETE FROM clients WHERE id = ?")->execute([$b['id'] ?? 0]);
+        respond(['success' => true]);
+    }
+
+    /* ============ بصمة الحضور الحقيقية (WebAuthn) ============ */
+    case 'webauthnRegisterStart': {
+        $user = requireLogin($pdo);
+        $webAuthn = getWebAuthn();
+        $stmt = $pdo->prepare("SELECT credential_id FROM webauthn_credentials WHERE user_id = ?");
+        $stmt->execute([$user['id']]);
+        $existing = array_map(function ($r) {
+            return \lbuchs\WebAuthn\Binary\ByteBuffer::fromBase64Url($r['credential_id']);
+        }, $stmt->fetchAll());
+
+        try {
+            $args = $webAuthn->getCreateArgs((string) $user['id'], $user['email'], $user['name'], 40, false, 'required', false, $existing);
+            $_SESSION['webauthn_challenge'] = $webAuthn->getChallenge()->getBinaryString();
+            respond(['publicKey' => $args->publicKey]);
+        } catch (\Throwable $e) {
+            respond(['error' => 'تعذر بدء التسجيل: ' . $e->getMessage()], 500);
+        }
+    }
+
+    case 'webauthnRegisterFinish': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        if (empty($_SESSION['webauthn_challenge'])) respond(['error' => 'انتهت صلاحية الطلب، حاول مجددًا'], 400);
+        $webAuthn = getWebAuthn();
+        try {
+            $clientDataJSON = \lbuchs\WebAuthn\Binary\ByteBuffer::fromBase64Url($b['clientDataJSON'])->getBinaryString();
+            $attestationObject = \lbuchs\WebAuthn\Binary\ByteBuffer::fromBase64Url($b['attestationObject'])->getBinaryString();
+            $data = $webAuthn->processCreate($clientDataJSON, $attestationObject, $_SESSION['webauthn_challenge'], 'required', true);
+            $credentialId = $data->credentialId->jsonSerialize();
+            $pdo->prepare("INSERT INTO webauthn_credentials (user_id, credential_id, public_key, sign_count) VALUES (?, ?, ?, ?)")
+                ->execute([$user['id'], $credentialId, $data->credentialPublicKey, $data->signatureCounter]);
+            unset($_SESSION['webauthn_challenge']);
+            respond(['success' => true]);
+        } catch (\Throwable $e) {
+            respond(['error' => 'تعذر إتمام التسجيل: ' . $e->getMessage()], 400);
+        }
+    }
+
+    case 'webauthnAuthStart': {
+        $user = requireLogin($pdo);
+        $stmt = $pdo->prepare("SELECT credential_id FROM webauthn_credentials WHERE user_id = ?");
+        $stmt->execute([$user['id']]);
+        $rows = $stmt->fetchAll();
+        if (empty($rows)) respond(['error' => 'لا يوجد بصمة مسجّلة لحسابك بعد'], 400);
+        $ids = array_map(function ($r) {
+            return \lbuchs\WebAuthn\Binary\ByteBuffer::fromBase64Url($r['credential_id']);
+        }, $rows);
+
+        $webAuthn = getWebAuthn();
+        try {
+            $args = $webAuthn->getGetArgs($ids, 40, true, true, true, true, true, 'required');
+            $_SESSION['webauthn_challenge'] = $webAuthn->getChallenge()->getBinaryString();
+            respond(['publicKey' => $args->publicKey]);
+        } catch (\Throwable $e) {
+            respond(['error' => 'تعذر بدء التحقق: ' . $e->getMessage()], 500);
+        }
+    }
+
+    case 'webauthnAttendance': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        if (empty($_SESSION['webauthn_challenge'])) respond(['error' => 'انتهت صلاحية الطلب، حاول مجددًا'], 400);
+
+        $stmt = $pdo->prepare("SELECT id, credential_id, public_key, sign_count FROM webauthn_credentials WHERE user_id = ? AND credential_id = ?");
+        $stmt->execute([$user['id'], $b['id'] ?? '']);
+        $cred = $stmt->fetch();
+        if (!$cred) respond(['error' => 'بصمة غير معروفة'], 400);
+
+        $webAuthn = getWebAuthn();
+        try {
+            $clientDataJSON = \lbuchs\WebAuthn\Binary\ByteBuffer::fromBase64Url($b['clientDataJSON'])->getBinaryString();
+            $authenticatorData = \lbuchs\WebAuthn\Binary\ByteBuffer::fromBase64Url($b['authenticatorData'])->getBinaryString();
+            $signature = \lbuchs\WebAuthn\Binary\ByteBuffer::fromBase64Url($b['signature'])->getBinaryString();
+
+            $webAuthn->processGet($clientDataJSON, $authenticatorData, $signature, $cred['public_key'], $_SESSION['webauthn_challenge'], (int) $cred['sign_count'], 'required', true);
+            unset($_SESSION['webauthn_challenge']);
+
+            $newCount = $webAuthn->getSignatureCounter();
+            if ($newCount !== null) {
+                $pdo->prepare("UPDATE webauthn_credentials SET sign_count = ? WHERE id = ?")->execute([$newCount, $cred['id']]);
+            }
+        } catch (\Throwable $e) {
+            respond(['error' => 'تعذر التحقق من البصمة: ' . $e->getMessage()], 400);
+        }
+
+        // التحقق البيومتري نجح -> نفّذ تسجيل الحضور أو الانصراف تلقائيًا حسب حالة اليوم
+        $lat = is_numeric($b['lat'] ?? null) ? $b['lat'] : null;
+        $lng = is_numeric($b['lng'] ?? null) ? $b['lng'] : null;
+        $todayRec = $pdo->prepare("SELECT id, check_out FROM attendance WHERE user_id = ? AND date = CURDATE()");
+        $todayRec->execute([$user['id']]);
+        $rec = $todayRec->fetch();
+        $result = (!$rec) ? doCheckIn($pdo, $user, $lat, $lng) : ((!$rec['check_out']) ? doCheckOut($pdo, $user) : ['error' => 'تم تسجيل دوامك بالكامل لهذا اليوم']);
+        respond($result, isset($result['error']) ? 400 : 200);
+    }
+
+    case 'webauthnRemove': {
+        $user = requireLogin($pdo);
+        $pdo->prepare("DELETE FROM webauthn_credentials WHERE user_id = ?")->execute([$user['id']]);
         respond(['success' => true]);
     }
 

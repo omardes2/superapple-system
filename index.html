@@ -417,6 +417,79 @@ async function checkOut(){
   if(res.error){ showToast(res.error); return; }
   await refresh();
 }
+
+/* ---------------- WEBAUTHN (بصمة/Face ID حقيقية) ---------------- */
+function webauthnSupported(){
+  return !!(window.PublicKeyCredential && navigator.credentials);
+}
+function b64urlToBuffer(b64url){
+  const pad = '='.repeat((4 - b64url.length % 4) % 4);
+  const base64 = (b64url + pad).replace(/-/g,'+').replace(/_/g,'/');
+  const raw = atob(base64);
+  const buf = new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) buf[i] = raw.charCodeAt(i);
+  return buf.buffer;
+}
+function bufferToB64url(buf){
+  const bytes = new Uint8Array(buf);
+  let str = '';
+  for(let i=0;i<bytes.length;i++) str += String.fromCharCode(bytes[i]);
+  return btoa(str).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+async function registerBiometric(){
+  if(!webauthnSupported()){ showToast('جهازك أو متصفحك لا يدعم البصمة الرقمية'); return; }
+  try{
+    const startRes = await apiPost('webauthnRegisterStart', {});
+    if(startRes.error){ showToast(startRes.error); return; }
+    const pk = startRes.publicKey;
+    pk.challenge = b64urlToBuffer(pk.challenge);
+    pk.user.id = b64urlToBuffer(pk.user.id);
+    if(pk.excludeCredentials) pk.excludeCredentials.forEach(c => c.id = b64urlToBuffer(c.id));
+
+    const cred = await navigator.credentials.create({ publicKey: pk });
+
+    const finishRes = await apiPost('webauthnRegisterFinish', {
+      clientDataJSON: bufferToB64url(cred.response.clientDataJSON),
+      attestationObject: bufferToB64url(cred.response.attestationObject)
+    });
+    if(finishRes.error){ showToast(finishRes.error); return; }
+    showToast('تم تفعيل البصمة الرقمية بنجاح 🔒');
+    await refresh();
+  }catch(e){
+    showToast('تم إلغاء تفعيل البصمة أو حصل خطأ');
+  }
+}
+
+async function verifyBiometricAndAttend(){
+  if(!webauthnSupported()){ showToast('جهازك لا يدعم البصمة، استخدم زر الموقع العادي'); return; }
+  state.checkingIn = true; render();
+  try{
+    const startRes = await apiPost('webauthnAuthStart', {});
+    if(startRes.error){ state.checkingIn=false; render(); showToast(startRes.error); return; }
+    const pk = startRes.publicKey;
+    pk.challenge = b64urlToBuffer(pk.challenge);
+    if(pk.allowCredentials) pk.allowCredentials.forEach(c => c.id = b64urlToBuffer(c.id));
+
+    const assertion = await navigator.credentials.get({ publicKey: pk });
+    const coords = await getGeoCoords();
+
+    const res = await apiPost('webauthnAttendance', {
+      id: bufferToB64url(assertion.rawId),
+      clientDataJSON: bufferToB64url(assertion.response.clientDataJSON),
+      authenticatorData: bufferToB64url(assertion.response.authenticatorData),
+      signature: bufferToB64url(assertion.response.signature),
+      lat: coords?.lat, lng: coords?.lng
+    });
+    state.checkingIn = false;
+    if(res.error){ showToast(res.error); return; }
+    showToast('تم التحقق بالبصمة وتسجيل دوامك ✅');
+    await refresh();
+  }catch(e){
+    state.checkingIn = false; render();
+    showToast('تم إلغاء التحقق بالبصمة');
+  }
+}
 async function markAbsent(userId, date){
   const res = await apiPost('markAbsent', { userId, date });
   if(res.error){ showToast(res.error); return; }
@@ -1434,20 +1507,22 @@ const FINGERPRINT_SVG = `<svg viewBox="0 0 24 24" width="34" height="34" fill="n
 function attendanceCard(rec){
   const u = state.currentUser;
   const exp = expectedHours(u);
+  const bioReady = webauthnSupported() && u.hasWebauthn;
+  const bioSupported = webauthnSupported();
   let body;
   if(!rec){
     body = `
-      <button class="fingerprint-circle" id="checkInBtn" ${state.checkingIn?'disabled':''}>
+      <button class="fingerprint-circle" id="${bioReady?'bioAttendBtn':'checkInBtn'}" ${state.checkingIn?'disabled':''}>
         ${FINGERPRINT_SVG}
-        <span style="font-size:10.5px;font-weight:700;">${state.checkingIn?'جارِ التحقق...':'اضغط لتسجيل الحضور'}</span>
+        <span style="font-size:10.5px;font-weight:700;">${state.checkingIn?'جارِ التحقق...':(bioReady?'اضغط للتحقق بالبصمة':'اضغط لتسجيل الحضور')}</span>
       </button>
       <div class="auth-error" style="margin-bottom:0;">لم تقم بتسجيل حضورك اليوم حتى الآن. يرجى الضغط فور بدء العمل الفعلي.</div>`;
   } else if(!rec.checkOut){
     body = `
       <div style="text-align:center;margin-bottom:6px;">${statusBadge(rec.status)} <span style="color:var(--text-muted);font-size:12.5px;">حضرت الساعة ${rec.checkIn}</span></div>
-      <button class="fingerprint-circle" id="checkOutBtn" style="border-color:var(--accent);color:var(--accent);">
+      <button class="fingerprint-circle" id="${bioReady?'bioAttendBtn':'checkOutBtn'}" style="border-color:var(--accent);color:var(--accent);" ${state.checkingIn?'disabled':''}>
         ${FINGERPRINT_SVG}
-        <span style="font-size:10.5px;font-weight:700;">اضغط لتسجيل الانصراف</span>
+        <span style="font-size:10.5px;font-weight:700;">${state.checkingIn?'جارِ التحقق...':(bioReady?'اضغط للتحقق بالبصمة':'اضغط لتسجيل الانصراف')}</span>
       </button>`;
   } else {
     const worked = hoursDiff(rec.checkIn, rec.checkOut);
@@ -1460,12 +1535,18 @@ function attendanceCard(rec){
   return `
   <div class="card">
     <div class="section-title">بصمة الحضور والانصراف الرقمية</div>
-    <p style="font-size:11.5px;color:var(--text-muted);margin-top:-8px;margin-bottom:14px;">تسجيل الدوام مع التحقق من الموقع الجغرافي الفعلي</p>
+    <p style="font-size:11.5px;color:var(--text-muted);margin-top:-8px;margin-bottom:14px;">${bioReady?'تسجيل الدوام بالتحقق ببصمتك أو Face ID الحقيقي':'تسجيل الدوام مع التحقق من الموقع الجغرافي الفعلي'}</p>
     <div class="welcome-panel">
       <div>أهلًا بك، <b>${u.name}</b></div>
       <div style="color:var(--text-muted);margin-top:4px;">القسم: ${u.department} · الدوام المعتمد: <span dir="ltr">${(u.workStart||'').slice(0,5)} – ${(u.workEnd||'').slice(0,5)}</span></div>
     </div>
     ${body}
+    ${bioSupported && !u.hasWebauthn ? `
+    <div style="text-align:center;margin-top:14px;padding-top:14px;border-top:1px dashed var(--border);">
+      <p style="font-size:11.5px;color:var(--text-muted);margin-bottom:8px;">فعّل البصمة الرقمية لجهازك عشان تسجيل الدوام يصير أسرع وأأمن</p>
+      <button class="btn btn-ghost btn-sm" id="registerBioBtn">🔒 تفعيل البصمة الرقمية</button>
+    </div>` : ''}
+    ${u.hasWebauthn ? `<p style="text-align:center;font-size:10.5px;color:var(--success);margin-top:10px;">🔒 البصمة الرقمية مفعّلة على هذا الحساب</p>` : ''}
   </div>`;
 }
 
@@ -1673,6 +1754,8 @@ function attachAppEvents(){
 
   document.getElementById('checkInBtn')?.addEventListener('click', checkIn);
   document.getElementById('checkOutBtn')?.addEventListener('click', checkOut);
+  document.getElementById('bioAttendBtn')?.addEventListener('click', verifyBiometricAndAttend);
+  document.getElementById('registerBioBtn')?.addEventListener('click', registerBiometric);
 
   document.getElementById('waForm')?.addEventListener('submit', async (e)=>{
     e.preventDefault();
