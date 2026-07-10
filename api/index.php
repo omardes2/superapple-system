@@ -145,10 +145,14 @@ switch ($action) {
 
             if ($isAdmin) {
                 $payload['notifications'] = $pdo->query("SELECT id, user_id AS userId, message, type, created_at AS createdAt FROM notifications ORDER BY created_at DESC")->fetchAll();
+                $payload['leaveRequests'] = $pdo->query("SELECT id, user_id AS userId, start_date AS startDate, end_date AS endDate, reason, status, created_at AS createdAt FROM leave_requests ORDER BY created_at DESC")->fetchAll();
             } else {
                 $stmt = $pdo->prepare("SELECT id, user_id AS userId, message, type, created_at AS createdAt FROM notifications WHERE user_id = ? ORDER BY created_at DESC");
                 $stmt->execute([$currentUser['id']]);
                 $payload['notifications'] = $stmt->fetchAll();
+                $stmt = $pdo->prepare("SELECT id, user_id AS userId, start_date AS startDate, end_date AS endDate, reason, status, created_at AS createdAt FROM leave_requests WHERE user_id = ? ORDER BY created_at DESC");
+                $stmt->execute([$currentUser['id']]);
+                $payload['leaveRequests'] = $stmt->fetchAll();
             }
         }
         respond($payload);
@@ -363,6 +367,37 @@ switch ($action) {
         $s = $pdo->query("SELECT penalty_absent FROM settings WHERE id = 1")->fetch();
         $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'غياب بدون تسجيل حضور')")->execute([$userId, -(int) $s['penalty_absent']]);
         pushNotification($pdo, $userId, "تم تسجيلك غائبًا بتاريخ {$date}. تم خصم {$s['penalty_absent']} نقطة.", 'absent');
+        respond(['success' => true]);
+    }
+
+    /* ============ الإجازات ============ */
+    case 'requestLeave': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        if (empty($b['startDate']) || empty($b['endDate'])) respond(['error' => 'حدد تاريخ البداية والنهاية'], 400);
+        if (strtotime($b['endDate']) < strtotime($b['startDate'])) respond(['error' => 'تاريخ النهاية يجب أن يكون بعد تاريخ البداية'], 400);
+        $pdo->prepare("INSERT INTO leave_requests (user_id, start_date, end_date, reason) VALUES (?, ?, ?, ?)")
+            ->execute([$user['id'], $b['startDate'], $b['endDate'], trim($b['reason'] ?? '')]);
+        $admins = $pdo->query("SELECT id FROM users WHERE role = 'admin'")->fetchAll();
+        foreach ($admins as $a) {
+            pushNotification($pdo, $a['id'], "{$user['name']} طلب إجازة من {$b['startDate']} إلى {$b['endDate']}.", 'leave');
+        }
+        respond(['success' => true]);
+    }
+
+    case 'reviewLeave': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $status = ($b['status'] ?? '') === 'approved' ? 'approved' : 'rejected';
+        $stmt = $pdo->prepare("SELECT user_id, start_date, end_date FROM leave_requests WHERE id = ?");
+        $stmt->execute([$b['id'] ?? 0]);
+        $lr = $stmt->fetch();
+        if (!$lr) respond(['error' => 'الطلب غير موجود'], 404);
+        $pdo->prepare("UPDATE leave_requests SET status = ?, reviewed_at = NOW() WHERE id = ?")->execute([$status, $b['id']]);
+        $msg = $status === 'approved'
+            ? "تمت الموافقة على طلب إجازتك من {$lr['start_date']} إلى {$lr['end_date']} ✅"
+            : "تم رفض طلب إجازتك من {$lr['start_date']} إلى {$lr['end_date']}.";
+        pushNotification($pdo, $lr['user_id'], $msg, 'leave');
         respond(['success' => true]);
     }
 

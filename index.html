@@ -197,10 +197,10 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], departments: [],
+  clients: [], leaveRequests: [], departments: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard',
-  taskModal: false, empModal: false, clientModal: false, departmentModal: false, scheduleModal: null, checkingIn: false, toast: null
+  taskModal: false, empModal: false, clientModal: false, departmentModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
 
@@ -240,6 +240,7 @@ function applyBootstrap(data){
   state.users = data.users || [];
   state.clients = data.clients || [];
   state.departments = data.departments || [];
+  state.leaveRequests = data.leaveRequests || [];
   state.tasks = (data.tasks || []).map(t => ({ ...t, assignees: (t.assignees||[]).map(a => ({ ...a, done: !!a.done })) }));
   state.attendance = data.attendance || [];
   state.points = (data.points || []).map(p => ({ ...p, points: Number(p.points) }));
@@ -384,6 +385,23 @@ async function markAbsent(userId, date){
   const res = await apiPost('markAbsent', { userId, date });
   if(res.error){ showToast(res.error); return; }
   await refresh();
+}
+
+/* ---------------- LEAVE REQUESTS ---------------- */
+async function handleRequestLeave(e){
+  e.preventDefault();
+  const f = e.target;
+  const res = await apiPost('requestLeave', { startDate: f.startDate.value, endDate: f.endDate.value, reason: f.reason.value.trim() });
+  if(res.error){ showToast(res.error); return; }
+  state.leaveModal = false;
+  await refresh();
+  showToast('تم إرسال طلب الإجازة للمدير');
+}
+async function handleReviewLeave(id, status){
+  const res = await apiPost('reviewLeave', { id, status });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  showToast(status==='approved' ? 'تمت الموافقة على الإجازة' : 'تم رفض الإجازة');
 }
 
 /* ---------------- TASKS ---------------- */
@@ -545,7 +563,7 @@ function renderAdmin(){
     {key:'clients', icon:'clients', label:'العملاء'},
     {key:'departments', icon:'departments', label:'الأقسام'},
     {key:'employees', icon:'employees', label:'الموظفون'},
-    {key:'attendance', icon:'attendance', label:'الدوام'},
+    {key:'attendance', icon:'attendance', label:'الدوام والإجازات'},
     {key:'rewards', icon:'rewards', label:'النقاط والمكافآت'},
     {key:'reports', icon:'reports', label:'التقارير'},
     {key:'whatsapp', icon:'whatsapp', label:'ربط واتساب'},
@@ -580,11 +598,11 @@ function renderAdmin(){
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'مراقبة الدوام', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', whatsapp:'ربط واتساب', notifications:'سجل الإشعارات'}; }
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', whatsapp:'ربط واتساب', notifications:'سجل الإشعارات'}; }
 function adminSubs(){ return {
   dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
   tasks:'إنشاء متابعة المهام الفردية والمشتركة', clients:'عملاء الوكالة وبيانات التواصل معهم', departments:'أقسام الشركة وتوزيع الموظفين عليها',
-  attendance:'حالة الحضور والانصراف لجميع الموظفين',
+  attendance:'حالة الحضور والانصراف، ومراجعة طلبات الإجازة',
   rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي',
   whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', notifications:'كل التنبيهات المُرسلة للفريق'
 }; }
@@ -897,7 +915,24 @@ function expectedHours(u){
 function adminAttendance(){
   const employees = state.users.filter(u=>u.role==='employee');
   const dates = [...new Set(state.attendance.map(a=>a.date))].sort().reverse().slice(0,14);
+  const leaves = state.leaveRequests || [];
+  const pending = leaves.filter(l=>l.status==='pending');
+  const reviewed = leaves.filter(l=>l.status!=='pending').slice(0,10);
+  const leaveStatusMap = {pending:['قيد المراجعة','badge-warning'], approved:['موافَق عليها','badge-success'], rejected:['مرفوضة','badge-danger']};
   return `
+  <div class="card" style="margin-bottom:16px;">
+    <div class="section-title">طلبات الإجازة ${pending.length>0?`<span class="badge badge-warning">${pending.length} بانتظار المراجعة</span>`:''}</div>
+    ${leaves.length===0?`<div class="empty">لا توجد طلبات إجازة بعد</div>`:`
+    <table><thead><tr><th>الموظف</th><th>من</th><th>إلى</th><th>السبب</th><th>الحالة</th><th></th></tr></thead><tbody>
+    ${[...pending, ...reviewed].map(l=>{
+      const u = state.users.find(u=>u.id===l.userId);
+      const [label,cls] = leaveStatusMap[l.status];
+      return `<tr><td>${u?u.name:''}</td><td>${fmtDate(l.startDate)}</td><td>${fmtDate(l.endDate)}</td><td style="color:var(--text-muted);font-size:12px;">${l.reason||'—'}</td>
+        <td><span class="badge ${cls}">${label}</span></td>
+        <td>${l.status==='pending'?`<button class="btn btn-primary btn-sm" style="padding:4px 10px;font-size:11px;" data-review-leave="${l.id}|approved">قبول</button> <button class="btn btn-danger btn-sm" style="padding:4px 10px;font-size:11px;" data-review-leave="${l.id}|rejected">رفض</button>`:''}</td></tr>`;
+    }).join('')}
+    </tbody></table>`}
+  </div>
   <div class="card">
     <div class="section-title">سجل الحضور (آخر الأيام المسجّلة) <span style="font-size:11px;color:var(--text-faint);font-weight:600;">الساعات المطلوبة محسوبة حسب دوام كل موظف</span></div>
     ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد</div>`:`
@@ -1050,7 +1085,7 @@ function renderEmployee(){
   const nav = [
     {key:'dashboard', icon:'home', label:'الرئيسية'},
     {key:'tasks', icon:'tasks', label:'مهامي'},
-    {key:'attendance', icon:'attendance', label:'دوامي'},
+    {key:'attendance', icon:'attendance', label:'دوامي وإجازاتي'},
     {key:'points', icon:'rewards', label:'نقاطي'},
     {key:'report', icon:'reports', label:'تقريري الشهري'},
     {key:'notifications', icon:'notifications', label:'الإشعارات'},
@@ -1074,13 +1109,14 @@ function renderEmployee(){
       ${empTabContent()}
     </div>
   </div>
+  ${state.leaveModal ? leaveModal() : ''}
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي', points:'نقاطي وترتيبي', report:'تقريري الشهري', notifications:'الإشعارات'}; }
+function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي وإجازاتي', points:'نقاطي وترتيبي', report:'تقريري الشهري', notifications:'الإشعارات'}; }
 function empSubs(){ return {
   dashboard:'نظرة سريعة على يومك', tasks:'المهام المسندة لك بشكل فردي أو مشترك',
-  attendance:'سجل حضورك وانصرافك', points:'رصيدك من النقاط وترتيبك بين الفريق',
+  attendance:'سجل حضورك وانصرافك، وطلب إجازة جديدة', points:'رصيدك من النقاط وترتيبك بين الفريق',
   report:'أداؤك خلال الشهر الحالي', notifications:'كل التنبيهات الخاصة بك'
 }; }
 
@@ -1162,7 +1198,19 @@ function empTasks(){
 function empAttendance(){
   const mine = state.attendance.filter(a=>a.userId===state.currentUser.id).sort((a,b)=>b.date.localeCompare(a.date));
   const exp = expectedHours(state.currentUser);
-  return `<div class="card">
+  const myLeaves = (state.leaveRequests||[]).slice().sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+  const leaveStatusMap = {pending:['قيد المراجعة','badge-warning'], approved:['موافَق عليها','badge-success'], rejected:['مرفوضة','badge-danger']};
+  return `
+  <div class="card" style="margin-bottom:16px;">
+    <div class="section-title">طلبات إجازتي <button class="btn btn-primary btn-sm" id="openLeaveModal">+ طلب إجازة</button></div>
+    ${myLeaves.length===0?`<div class="empty">ما في طلبات إجازة قدّمتها بعد</div>`:`
+    <table><thead><tr><th>من</th><th>إلى</th><th>السبب</th><th>الحالة</th></tr></thead><tbody>
+    ${myLeaves.map(l=>{ const [label,cls] = leaveStatusMap[l.status];
+      return `<tr><td>${fmtDate(l.startDate)}</td><td>${fmtDate(l.endDate)}</td><td style="color:var(--text-muted);font-size:12px;">${l.reason||'—'}</td><td><span class="badge ${cls}">${label}</span></td></tr>`;
+    }).join('')}
+    </tbody></table>`}
+  </div>
+  <div class="card">
     <div class="section-title">سجل دوامي <span style="font-size:11px;color:var(--text-faint);font-weight:600;">دوامك المطلوب: ${exp} ساعة يوميًا</span></div>
     ${mine.length===0?`<div class="empty">لا يوجد سجل دوام بعد</div>`:`
     <table><thead><tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>ساعات العمل</th><th>الحالة</th></tr></thead><tbody>
@@ -1173,6 +1221,23 @@ function empAttendance(){
     }).join('')}
     </tbody></table>`}
   </div>`;
+}
+
+function leaveModal(){
+  return `<div class="modal-bg" id="leaveModalBg"><div class="modal">
+    <h3 class="modal-title">طلب إجازة جديد</h3>
+    <form id="leaveForm">
+      <div class="form-row">
+        <div class="field"><label>من تاريخ</label><input name="startDate" type="date" required/></div>
+        <div class="field"><label>إلى تاريخ</label><input name="endDate" type="date" required/></div>
+      </div>
+      <div class="field"><label>السبب (اختياري)</label><textarea name="reason" rows="2" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;"></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="closeLeaveModal" style="flex:1;">إلغاء</button>
+        <button type="submit" class="btn btn-primary" style="flex:1;">إرسال الطلب</button>
+      </div>
+    </form>
+  </div></div>`;
 }
 
 function empPoints(){
@@ -1290,6 +1355,14 @@ function attachAppEvents(){
   });
   document.querySelectorAll('[data-mark-absent]').forEach(el=>{
     el.addEventListener('click', ()=>{ const [uid,d] = el.getAttribute('data-mark-absent').split('|'); markAbsent(uid,d); });
+  });
+
+  document.getElementById('openLeaveModal')?.addEventListener('click', ()=>{ state.leaveModal=true; render(); });
+  document.getElementById('closeLeaveModal')?.addEventListener('click', ()=>{ state.leaveModal=false; render(); });
+  document.getElementById('leaveModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='leaveModalBg'){ state.leaveModal=false; render(); }});
+  document.getElementById('leaveForm')?.addEventListener('submit', handleRequestLeave);
+  document.querySelectorAll('[data-review-leave]').forEach(el=>{
+    el.addEventListener('click', ()=>{ const [id,status] = el.getAttribute('data-review-leave').split('|'); handleReviewLeave(id,status); });
   });
   document.querySelectorAll('[data-toggle-assignee]').forEach(el=>{
     el.addEventListener('click', ()=>{ const [tid,uid] = el.getAttribute('data-toggle-assignee').split('|'); toggleAssigneeDone(tid,uid); });
