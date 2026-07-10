@@ -113,10 +113,9 @@ switch ($action) {
 
             if ($isAdmin) {
                 $payload['clients'] = $pdo->query("SELECT id, name, contact_name AS contactName, phone, email, notes, created_at AS createdAt FROM clients ORDER BY name")->fetchAll();
-                $payload['projects'] = $pdo->query("SELECT id, client_id AS clientId, name, description, status, created_at AS createdAt FROM projects ORDER BY created_at DESC")->fetchAll();
             }
 
-            $tasks = $pdo->query("SELECT id, title, description, priority, deadline, project_id AS projectId, client_id AS clientId, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
+            $tasks = $pdo->query("SELECT id, title, description, priority, deadline, client_id AS clientId, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
             $aStmt = $pdo->prepare("SELECT user_id AS userId, done, completed_at AS completedAt FROM task_assignees WHERE task_id = ?");
             foreach ($tasks as &$t) {
                 $aStmt->execute([$t['id']]);
@@ -237,8 +236,8 @@ switch ($action) {
             }
         }
 
-        $stmt = $pdo->prepare("INSERT INTO tasks (title, description, priority, deadline, created_by, project_id, client_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([trim($b['title']), trim($b['description'] ?? ''), $b['priority'] ?: 'medium', $b['deadline'] ?: null, $admin['id'], $b['projectId'] ?: null, $clientId]);
+        $stmt = $pdo->prepare("INSERT INTO tasks (title, description, priority, deadline, created_by, client_id) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([trim($b['title']), trim($b['description'] ?? ''), $b['priority'] ?: 'medium', $b['deadline'] ?: null, $admin['id'], $clientId]);
         $taskId = $pdo->lastInsertId();
         $insA = $pdo->prepare("INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)");
         $deadlineTxt = $b['deadline'] ? date('d/m', strtotime($b['deadline'])) : 'غير محدد';
@@ -385,30 +384,6 @@ switch ($action) {
         requireAdmin($pdo);
         $b = bodyInput();
         $pdo->prepare("DELETE FROM clients WHERE id = ?")->execute([$b['id'] ?? 0]);
-        respond(['success' => true]);
-    }
-
-    /* ============ المشاريع ============ */
-    case 'addProject': {
-        requireAdmin($pdo);
-        $b = bodyInput();
-        if (empty($b['name'])) respond(['error' => 'اسم المشروع مطلوب'], 400);
-        $stmt = $pdo->prepare("INSERT INTO projects (client_id, name, description, status) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$b['clientId'] ?: null, trim($b['name']), trim($b['description'] ?? ''), $b['status'] ?: 'active']);
-        respond(['success' => true]);
-    }
-
-    case 'updateProjectStatus': {
-        requireAdmin($pdo);
-        $b = bodyInput();
-        $pdo->prepare("UPDATE projects SET status = ? WHERE id = ?")->execute([$b['status'] ?? 'active', $b['id'] ?? 0]);
-        respond(['success' => true]);
-    }
-
-    case 'removeProject': {
-        requireAdmin($pdo);
-        $b = bodyInput();
-        $pdo->prepare("DELETE FROM projects WHERE id = ?")->execute([$b['id'] ?? 0]);
         respond(['success' => true]);
     }
 

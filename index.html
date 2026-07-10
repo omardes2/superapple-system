@@ -186,10 +186,10 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], projects: [],
+  clients: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard',
-  taskModal: false, empModal: false, clientModal: false, projectModal: false, toast: null
+  taskModal: false, empModal: false, clientModal: false, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
 
@@ -228,7 +228,6 @@ function applyBootstrap(data){
   state.settings = data.settings || DEFAULT_SETTINGS;
   state.users = data.users || [];
   state.clients = data.clients || [];
-  state.projects = data.projects || [];
   state.tasks = (data.tasks || []).map(t => ({ ...t, assignees: (t.assignees||[]).map(a => ({ ...a, done: !!a.done })) }));
   state.attendance = data.attendance || [];
   state.points = (data.points || []).map(p => ({ ...p, points: Number(p.points) }));
@@ -314,28 +313,6 @@ async function handleRemoveClient(id){
   showToast('تم حذف العميل');
 }
 
-/* ---------------- PROJECTS (admin) ---------------- */
-async function handleAddProject(e){
-  e.preventDefault();
-  const f = e.target;
-  const res = await apiPost('addProject', {
-    name: f.name.value.trim(), clientId: f.clientId.value || null, description: f.description.value.trim()
-  });
-  if(res.error){ showToast(res.error); return; }
-  state.projectModal = false;
-  await refresh();
-  showToast('تم إنشاء المشروع');
-}
-async function handleRemoveProject(id){
-  await apiPost('removeProject', { id });
-  await refresh();
-  showToast('تم حذف المشروع');
-}
-async function handleUpdateProjectStatus(id, status){
-  await apiPost('updateProjectStatus', { id, status });
-  await refresh();
-  showToast('تم تحديث حالة المشروع');
-}
 
 /* ---------------- ATTENDANCE ---------------- */
 function todayRecord(userId){
@@ -371,7 +348,7 @@ async function handleCreateTask(e){
   const res = await apiPost('createTask', {
     title: f.title.value.trim(), description: f.description.value.trim(),
     priority: f.priority.value, deadline: f.deadline.value, assignees: selectedAssignees,
-    projectId: f.projectId.value || null, clientName: f.clientName.value.trim()
+    clientName: f.clientName.value.trim()
   });
   if(res.error){ showToast(res.error); return; }
   state.taskModal = false;
@@ -506,7 +483,6 @@ function renderAdmin(){
     {key:'dashboard', icon:'dashboard', label:'نظرة عامة'},
     {key:'tasks', icon:'tasks', label:'المهام'},
     {key:'clients', icon:'clients', label:'العملاء'},
-    {key:'projects', icon:'projects', label:'المشاريع'},
     {key:'employees', icon:'employees', label:'الموظفون'},
     {key:'attendance', icon:'attendance', label:'الدوام'},
     {key:'rewards', icon:'rewards', label:'النقاط والمكافآت'},
@@ -539,14 +515,13 @@ function renderAdmin(){
   ${state.empModal ? employeeModal() : ''}
   ${state.taskModal ? taskModal() : ''}
   ${state.clientModal ? clientModal() : ''}
-  ${state.projectModal ? projectModal() : ''}
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', projects:'المشاريع', attendance:'مراقبة الدوام', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', whatsapp:'ربط واتساب', notifications:'سجل الإشعارات'}; }
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', attendance:'مراقبة الدوام', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', whatsapp:'ربط واتساب', notifications:'سجل الإشعارات'}; }
 function adminSubs(){ return {
   dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
-  tasks:'إنشاء متابعة المهام الفردية والمشتركة', clients:'عملاء الوكالة وبيانات التواصل معهم', projects:'مشاريع العملاء وحالتها',
+  tasks:'إنشاء متابعة المهام الفردية والمشتركة', clients:'عملاء الوكالة وبيانات التواصل معهم',
   attendance:'حالة الحضور والانصراف لجميع الموظفين',
   rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي',
   whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', notifications:'كل التنبيهات المُرسلة للفريق'
@@ -558,7 +533,6 @@ function adminTabContent(){
     case 'employees': return adminEmployees();
     case 'tasks': return adminTasks();
     case 'clients': return adminClients();
-    case 'projects': return adminProjects();
     case 'attendance': return adminAttendance();
     case 'rewards': return adminRewards();
     case 'reports': return adminReports();
@@ -719,51 +693,6 @@ function clientModal(){
   </div></div>`;
 }
 
-function adminProjects(){
-  const projects = state.projects;
-  const clientName = id => state.clients.find(c=>c.id==id)?.name || 'بدون عميل';
-  const statusMap = {active:['نشط','badge-success'], completed:['مكتمل','badge-primary'], on_hold:['متوقف','badge-warning']};
-  return `
-  <div class="section-title">قائمة المشاريع (${projects.length}) <button class="btn btn-primary btn-sm" id="openProjectModal">+ مشروع جديد</button></div>
-  ${projects.length===0?`<div class="card"><div class="empty">لا توجد مشاريع بعد. اضغط "مشروع جديد" للبدء.</div></div>`:`
-  <div class="card">
-    <table><thead><tr><th>المشروع</th><th>العميل</th><th>الحالة</th><th>عدد المهام</th><th></th></tr></thead><tbody>
-    ${projects.map(p=>{
-      const taskCount = state.tasks.filter(t=>t.projectId==p.id).length;
-      const [label,cls] = statusMap[p.status]||statusMap.active;
-      return `<tr><td>${p.name}</td><td>${clientName(p.clientId)}</td>
-        <td><select class="badge ${cls}" style="border:none;cursor:pointer;" data-change-status="${p.id}">
-          <option value="active" ${p.status==='active'?'selected':''}>نشط</option>
-          <option value="on_hold" ${p.status==='on_hold'?'selected':''}>متوقف</option>
-          <option value="completed" ${p.status==='completed'?'selected':''}>مكتمل</option>
-        </select></td>
-        <td>${taskCount}</td>
-        <td><button class="btn btn-danger btn-sm" data-remove-project="${p.id}">حذف</button></td></tr>`;
-    }).join('')}
-    </tbody></table>
-  </div>`}`;
-}
-
-function projectModal(){
-  return `<div class="modal-bg" id="projectModalBg"><div class="modal">
-    <h3 class="modal-title">مشروع جديد</h3>
-    <form id="projectForm">
-      <div class="field"><label>اسم المشروع</label><input name="name" required/></div>
-      <div class="field"><label>العميل</label>
-        <select name="clientId" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);">
-          <option value="">بدون عميل</option>
-          ${state.clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field"><label>الوصف</label><textarea name="description" rows="2" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;"></textarea></div>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="closeProjectModal" style="flex:1;">إلغاء</button>
-        <button type="submit" class="btn btn-primary" style="flex:1;">إنشاء</button>
-      </div>
-    </form>
-  </div></div>`;
-}
-
 function adminEmployees(){
   const employees = state.users.filter(u=>u.role==='employee');
   return `
@@ -819,7 +748,6 @@ function taskCard(t, adminView){
     <div class="task-meta">
       ${statusBadge(t.priority)}
       ${t.clientId?`<span>🏢 ${state.clients?.find(c=>c.id==t.clientId)?.name||''}</span>`:''}
-      ${t.projectId?`<span>📁 ${state.projects?.find(p=>p.id==t.projectId)?.name||''}</span>`:''}
       ${t.deadline?`<span>⏳ الموعد: ${fmtDate(t.deadline)}</span>`:''}
       <span>👥 ${t.assignees.length} موظف</span>
     </div>
@@ -961,12 +889,6 @@ function taskModal(){
       <div class="form-row">
         <div class="field"><label>الأولوية</label><select name="priority"><option value="medium">متوسطة</option><option value="high">عالية</option><option value="low">منخفضة</option></select></div>
         <div class="field"><label>الموعد النهائي</label><input name="deadline" type="date" required/></div>
-      </div>
-      <div class="field"><label>المشروع (اختياري)</label>
-        <select name="projectId" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);">
-          <option value="">بدون مشروع</option>
-          ${(state.projects||[]).map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
-        </select>
       </div>
       <div class="field"><label>الشركة / العميل (اختياري — اكتب اسمًا موجودًا أو جديدًا)</label>
         <input name="clientName" list="clientsDatalist" placeholder="ابحث أو اكتب اسم الشركة..." autocomplete="off"/>
@@ -1139,17 +1061,6 @@ function attachAppEvents(){
   document.getElementById('clientForm')?.addEventListener('submit', handleAddClient);
   document.querySelectorAll('[data-remove-client]').forEach(el=>{
     el.addEventListener('click', ()=> handleRemoveClient(el.getAttribute('data-remove-client')));
-  });
-
-  document.getElementById('openProjectModal')?.addEventListener('click', ()=>{ state.projectModal=true; render(); });
-  document.getElementById('closeProjectModal')?.addEventListener('click', ()=>{ state.projectModal=false; render(); });
-  document.getElementById('projectModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='projectModalBg'){ state.projectModal=false; render(); }});
-  document.getElementById('projectForm')?.addEventListener('submit', handleAddProject);
-  document.querySelectorAll('[data-remove-project]').forEach(el=>{
-    el.addEventListener('click', ()=> handleRemoveProject(el.getAttribute('data-remove-project')));
-  });
-  document.querySelectorAll('[data-change-status]').forEach(el=>{
-    el.addEventListener('change', ()=> handleUpdateProjectStatus(el.getAttribute('data-change-status'), el.value));
   });
 
   document.getElementById('openTaskModal')?.addEventListener('click', openTaskModal);
