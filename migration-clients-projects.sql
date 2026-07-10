@@ -23,3 +23,7 @@ CREATE TABLE IF NOT EXISTS projects (
 
 ALTER TABLE tasks ADD COLUMN project_id INT DEFAULT NULL;
 ALTER TABLE tasks ADD CONSTRAINT fk_task_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL;
+
+-- ترقية إضافية: ربط المهمة مباشرة بشركة/عميل (بدون الحاجة لمشروع رسمي)
+ALTER TABLE tasks ADD COLUMN client_id INT DEFAULT NULL;
+ALTER TABLE tasks ADD CONSTRAINT fk_task_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL;

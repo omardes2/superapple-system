@@ -116,7 +116,7 @@ switch ($action) {
                 $payload['projects'] = $pdo->query("SELECT id, client_id AS clientId, name, description, status, created_at AS createdAt FROM projects ORDER BY created_at DESC")->fetchAll();
             }
 
-            $tasks = $pdo->query("SELECT id, title, description, priority, deadline, project_id AS projectId, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
+            $tasks = $pdo->query("SELECT id, title, description, priority, deadline, project_id AS projectId, client_id AS clientId, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
             $aStmt = $pdo->prepare("SELECT user_id AS userId, done, completed_at AS completedAt FROM task_assignees WHERE task_id = ?");
             foreach ($tasks as &$t) {
                 $aStmt->execute([$t['id']]);
@@ -221,8 +221,24 @@ switch ($action) {
         $admin = requireAdmin($pdo);
         $b = bodyInput();
         if (empty($b['title']) || empty($b['assignees'])) respond(['error' => 'العنوان والموظفون المسندون مطلوبون'], 400);
-        $stmt = $pdo->prepare("INSERT INTO tasks (title, description, priority, deadline, created_by, project_id) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([trim($b['title']), trim($b['description'] ?? ''), $b['priority'] ?: 'medium', $b['deadline'] ?: null, $admin['id'], $b['projectId'] ?: null]);
+
+        // ابحث عن الشركة بالاسم، وإذا ما كانت موجودة أنشئها تلقائيًا
+        $clientId = null;
+        $clientName = trim($b['clientName'] ?? '');
+        if ($clientName !== '') {
+            $stmt = $pdo->prepare("SELECT id FROM clients WHERE LOWER(name) = LOWER(?) LIMIT 1");
+            $stmt->execute([$clientName]);
+            $existing = $stmt->fetch();
+            if ($existing) {
+                $clientId = $existing['id'];
+            } else {
+                $pdo->prepare("INSERT INTO clients (name) VALUES (?)")->execute([$clientName]);
+                $clientId = $pdo->lastInsertId();
+            }
+        }
+
+        $stmt = $pdo->prepare("INSERT INTO tasks (title, description, priority, deadline, created_by, project_id, client_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([trim($b['title']), trim($b['description'] ?? ''), $b['priority'] ?: 'medium', $b['deadline'] ?: null, $admin['id'], $b['projectId'] ?: null, $clientId]);
         $taskId = $pdo->lastInsertId();
         $insA = $pdo->prepare("INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)");
         $deadlineTxt = $b['deadline'] ? date('d/m', strtotime($b['deadline'])) : 'غير محدد';

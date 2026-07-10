@@ -368,7 +368,7 @@ async function handleCreateTask(e){
   const res = await apiPost('createTask', {
     title: f.title.value.trim(), description: f.description.value.trim(),
     priority: f.priority.value, deadline: f.deadline.value, assignees: selectedAssignees,
-    projectId: f.projectId.value || null
+    projectId: f.projectId.value || null, clientName: f.clientName.value.trim()
   });
   if(res.error){ showToast(res.error); return; }
   state.taskModal = false;
@@ -801,6 +801,7 @@ function taskCard(t, adminView){
     </div>
     <div class="task-meta">
       ${statusBadge(t.priority)}
+      ${t.clientId?`<span>🏢 ${state.clients?.find(c=>c.id==t.clientId)?.name||''}</span>`:''}
       ${t.projectId?`<span>📁 ${state.projects?.find(p=>p.id==t.projectId)?.name||''}</span>`:''}
       ${t.deadline?`<span>⏳ الموعد: ${fmtDate(t.deadline)}</span>`:''}
       <span>👥 ${t.assignees.length} موظف</span>
@@ -949,6 +950,12 @@ function taskModal(){
           <option value="">بدون مشروع</option>
           ${(state.projects||[]).map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
         </select>
+      </div>
+      <div class="field"><label>الشركة / العميل (اختياري — اكتب اسمًا موجودًا أو جديدًا)</label>
+        <input name="clientName" list="clientsDatalist" placeholder="ابحث أو اكتب اسم الشركة..." autocomplete="off"/>
+        <datalist id="clientsDatalist">
+          ${(state.clients||[]).map(c=>`<option value="${c.name}"></option>`).join('')}
+        </datalist>
       </div>
       <div class="field"><label>إسناد إلى (يمكن اختيار أكثر من موظف)</label>
         <div class="chip-select">
