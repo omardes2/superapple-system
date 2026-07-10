@@ -1390,7 +1390,7 @@ function whatsappBanner(){
 
 function notificationsList(all){
   const list = all ? state.notifications : state.notifications.filter(n=>n.userId===state.currentUser.id);
-  const icons = {welcome:'👋',late:'⏰',checkin:'✅',checkout:'🏁',task:'🗂️',points:'🏆',absent:'⚠️'};
+  const icons = {welcome:'👋',late:'⏰',late_reminder:'🚨',checkin:'✅',checkout:'🏁',task:'🗂️',points:'🏆',absent:'⚠️'};
   return `<div class="card">
     ${whatsappBanner()}
     ${list.length===0?`<div class="empty">لا توجد إشعارات حتى الآن</div>`:list.slice(0,60).map(n=>{
