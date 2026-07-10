@@ -517,7 +517,7 @@ switch ($action) {
             $clientDataJSON = \lbuchs\WebAuthn\Binary\ByteBuffer::fromBase64Url($b['clientDataJSON'])->getBinaryString();
             $attestationObject = \lbuchs\WebAuthn\Binary\ByteBuffer::fromBase64Url($b['attestationObject'])->getBinaryString();
             $data = $webAuthn->processCreate($clientDataJSON, $attestationObject, $_SESSION['webauthn_challenge'], 'required', true);
-            $credentialId = $data->credentialId->jsonSerialize();
+            $credentialId = (new \lbuchs\WebAuthn\Binary\ByteBuffer($data->credentialId))->jsonSerialize();
             $pdo->prepare("INSERT INTO webauthn_credentials (user_id, credential_id, public_key, sign_count) VALUES (?, ?, ?, ?)")
                 ->execute([$user['id'], $credentialId, $data->credentialPublicKey, $data->signatureCounter]);
             unset($_SESSION['webauthn_challenge']);
