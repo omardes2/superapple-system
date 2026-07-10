@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سوبر آبل | نظام إدارة الفريق</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F5F4FB;
+    --surface:#FFFFFF;
+    --surface-2:#FBFAFF;
+    --border:#E7E4F4;
+    --primary:#5B3DF5;
+    --primary-dark:#4527D6;
+    --primary-tint:#EFEBFF;
+    --accent:#FF6B4A;
+    --accent-tint:#FFEDE7;
+    --success:#1FAE7A;
+    --success-tint:#E4F7EF;
+    --warning:#F5A623;
+    --warning-tint:#FFF4E0;
+    --danger:#E5484D;
+    --danger-tint:#FDEBEC;
+    --text:#1A1B25;
+    --text-muted:#6B6F80;
+    --text-faint:#A2A6B5;
+    --radius:16px;
+    --radius-sm:10px;
+    --shadow: 0 1px 2px rgba(20,15,60,0.04), 0 8px 24px rgba(20,15,60,0.06);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);}
+  #app{min-height:100vh;}
+  h1,h2,h3,h4{margin:0;font-weight:800;}
+  p{margin:0;}
+  button{font-family:inherit;cursor:pointer;border:none;}
+  input,select,textarea{font-family:inherit;}
+  ::selection{background:var(--primary-tint);}
+
+  /* ---------- shared / auth screens ---------- */
+  .auth-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:
+    radial-gradient(circle at 15% 20%, rgba(91,61,245,0.10), transparent 45%),
+    radial-gradient(circle at 85% 80%, rgba(255,107,74,0.10), transparent 45%),
+    var(--bg);}
+  .auth-card{width:100%;max-width:420px;background:var(--surface);border-radius:20px;box-shadow:var(--shadow);padding:36px 32px;border:1px solid var(--border);}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:22px;}
+  .brand-mark{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,var(--primary),#8B6BFF);position:relative;flex:none;}
+  .brand-mark::after{content:'';position:absolute;inset:0;margin:auto;width:10px;height:10px;border-radius:50%;background:var(--accent);top:9px;right:9px;box-shadow:0 0 0 3px rgba(255,107,74,0.25);animation:pulse 2.2s infinite;}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 3px rgba(255,107,74,0.25);}50%{box-shadow:0 0 0 7px rgba(255,107,74,0.05);}}
+  .brand-name{font-size:19px;font-weight:800;}
+  .brand-name span{color:var(--primary);}
+  .auth-title{font-size:24px;margin-bottom:4px;}
+  .auth-sub{color:var(--text-muted);font-size:14px;margin-bottom:24px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:6px;}
+  .field input, .field select{width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border);background:var(--surface-2);font-size:14.5px;outline:none;transition:.15s;color:var(--text);}
+  .field input:focus, .field select:focus{border-color:var(--primary);background:#fff;}
+  .btn{padding:12px 18px;border-radius:var(--radius-sm);font-weight:700;font-size:14.5px;transition:.15s;display:inline-flex;align-items:center;justify-content:center;gap:8px;}
+  .btn-primary{background:var(--primary);color:#fff;width:100%;}
+  .btn-primary:hover{background:var(--primary-dark);}
+  .btn-ghost{background:transparent;color:var(--text-muted);border:1.5px solid var(--border);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-sm{padding:8px 12px;font-size:13px;}
+  .btn-danger{background:var(--danger-tint);color:var(--danger);}
+  .auth-error{background:var(--danger-tint);color:var(--danger);padding:10px 14px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:14px;font-weight:600;}
+  .auth-note{margin-top:18px;font-size:12.5px;color:var(--text-faint);line-height:1.9;background:var(--surface-2);padding:12px 14px;border-radius:var(--radius-sm);}
+
+  /* ---------- app shell ---------- */
+  .shell{display:flex;min-height:100vh;}
+  .sidebar{width:246px;flex:none;background:var(--surface);border-left:1px solid var(--border);padding:22px 16px;display:flex;flex-direction:column;}
+  .sidebar .brand{padding:0 6px;margin-bottom:28px;}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:var(--radius-sm);color:var(--text-muted);font-weight:700;font-size:14px;margin-bottom:4px;background:transparent;width:100%;text-align:right;}
+  .nav-item:hover{background:var(--surface-2);color:var(--text);}
+  .nav-item.active{background:var(--primary-tint);color:var(--primary);}
+  .nav-dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.5;flex:none;}
+  .sidebar-foot{margin-top:auto;padding-top:16px;border-top:1px solid var(--border);}
+  .user-chip{display:flex;align-items:center;gap:10px;padding:8px 6px;}
+  .avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--accent));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:14px;flex:none;}
+  .user-chip-name{font-size:13.5px;font-weight:700;}
+  .user-chip-role{font-size:11.5px;color:var(--text-faint);}
+
+  .main{flex:1;padding:26px 32px;max-width:calc(100vw - 246px);}
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;}
+  .page-title{font-size:22px;}
+  .page-sub{color:var(--text-muted);font-size:13.5px;margin-top:4px;}
+  .bell-btn{position:relative;width:40px;height:40px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:17px;}
+  .bell-dot{position:absolute;top:8px;left:9px;width:8px;height:8px;border-radius:50%;background:var(--accent);border:2px solid var(--surface);}
+
+  .grid{display:grid;gap:16px;}
+  .grid-4{grid-template-columns:repeat(4,1fr);}
+  .grid-3{grid-template-columns:repeat(3,1fr);}
+  .grid-2{grid-template-columns:2fr 1fr;}
+  @media(max-width:1100px){.grid-4{grid-template-columns:repeat(2,1fr);}.grid-2{grid-template-columns:1fr;}}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);}
+  .stat-card{padding:18px 20px;}
+  .stat-label{font-size:12.5px;color:var(--text-muted);font-weight:700;margin-bottom:8px;}
+  .stat-value{font-size:26px;font-weight:800;}
+  .stat-sub{font-size:12px;color:var(--text-faint);margin-top:6px;}
+
+  .section-title{font-size:15.5px;font-weight:800;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th{text-align:right;color:var(--text-muted);font-weight:700;font-size:12px;padding:8px 10px;border-bottom:1.5px solid var(--border);}
+  td{padding:11px 10px;border-bottom:1px solid var(--border);}
+  tr:last-child td{border-bottom:none;}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:100px;font-size:11.5px;font-weight:700;}
+  .badge-success{background:var(--success-tint);color:var(--success);}
+  .badge-warning{background:var(--warning-tint);color:var(--warning);}
+  .badge-danger{background:var(--danger-tint);color:var(--danger);}
+  .badge-primary{background:var(--primary-tint);color:var(--primary);}
+  .badge-muted{background:var(--surface-2);color:var(--text-muted);}
+
+  .task-card{border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:10px;background:var(--surface-2);}
+  .task-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  .task-title{font-weight:800;font-size:14.5px;margin-bottom:4px;}
+  .task-desc{font-size:13px;color:var(--text-muted);margin-bottom:10px;line-height:1.6;}
+  .task-meta{display:flex;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--text-faint);align-items:center;}
+  .assignee-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px dashed var(--border);font-size:13px;}
+  .check{width:20px;height:20px;border-radius:6px;border:2px solid var(--border);flex:none;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+  .check.done{background:var(--success);border-color:var(--success);color:#fff;}
+
+  .modal-bg{position:fixed;inset:0;background:rgba(20,15,40,0.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;}
+  .modal{background:#fff;border-radius:18px;padding:26px;width:100%;max-width:480px;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);}
+  .modal-title{font-size:17px;margin-bottom:16px;}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .chip-select{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);}
+  .chip{padding:6px 12px;border-radius:100px;font-size:12.5px;font-weight:700;background:#fff;border:1.5px solid var(--border);color:var(--text-muted);}
+  .chip.sel{background:var(--primary);color:#fff;border-color:var(--primary);}
+  .modal-actions{display:flex;gap:10px;margin-top:18px;}
+
+  .notif-item{display:flex;gap:12px;padding:12px 6px;border-bottom:1px solid var(--border);}
+  .notif-icon{width:34px;height:34px;border-radius:10px;background:var(--primary-tint);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none;font-size:15px;}
+  .notif-text{font-size:13.5px;line-height:1.6;}
+  .notif-time{font-size:11px;color:var(--text-faint);margin-top:2px;}
+
+  .whatsapp-banner{display:flex;gap:10px;align-items:flex-start;background:var(--success-tint);border:1px solid rgba(31,174,122,0.25);padding:12px 14px;border-radius:var(--radius-sm);font-size:12.5px;color:#146B4D;line-height:1.8;margin-bottom:18px;}
+  .empty{text-align:center;padding:40px 20px;color:var(--text-faint);font-size:13.5px;}
+  .attend-btn{padding:16px;border-radius:var(--radius);width:100%;font-size:15px;font-weight:800;}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:12px 20px;border-radius:100px;font-size:13.5px;font-weight:600;z-index:100;box-shadow:var(--shadow);}
+  .rank-pill{width:26px;height:26px;border-radius:50%;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:var(--text-muted);}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* =========================================================
+   SUPER APPLE — TEAM MANAGEMENT SYSTEM
+   Data is stored in a real MySQL database via the PHP API
+   in api/index.php (see api/config.php for DB credentials).
+   ========================================================= */
+
+const API = 'api/index.php';
+
+let state = {
+  users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
+  currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
+  adminTab: 'dashboard', empTab: 'dashboard',
+  taskModal: false, empModal: false, toast: null
+};
+const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappServerUrl:'http://localhost:3001' };
+let waPoll = { ready:false, qr:null, checking:false, lastError:null };
+
+async function apiGet(action){
+  try{
+    const res = await fetch(`${API}?action=${action}`, { credentials:'same-origin' });
+    return await res.json();
+  }catch(e){ return { error: 'تعذر الاتصال بالسيرفر' }; }
+}
+async function apiPost(action, body){
+  try{
+    const res = await fetch(`${API}?action=${action}`, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})
+    });
+    return await res.json();
+  }catch(e){ return { error: 'تعذر الاتصال بالسيرفر' }; }
+}
+
+async function init(){
+  const data = await apiGet('bootstrap');
+  if(data.error){ state.loading=false; state.fatalError = data.error; render(); return; }
+  applyBootstrap(data);
+  state.loading = false;
+  render();
+}
+async function refresh(){
+  const data = await apiGet('bootstrap');
+  if(data.error){ state.fatalError = data.error; render(); return; }
+  applyBootstrap(data);
+  render();
+}
+function applyBootstrap(data){
+  state.hasUsers = !!data.hasUsers;
+  state.currentUser = data.currentUser || null;
+  state.settings = data.settings || DEFAULT_SETTINGS;
+  state.users = data.users || [];
+  state.tasks = (data.tasks || []).map(t => ({ ...t, assignees: (t.assignees||[]).map(a => ({ ...a, done: !!a.done })) }));
+  state.attendance = data.attendance || [];
+  state.points = (data.points || []).map(p => ({ ...p, points: Number(p.points) }));
+  state.notifications = data.notifications || [];
+}
+
+function uid(p){ return p + '_' + Math.random().toString(36).slice(2,9); }
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function nowTime(){ const d=new Date(); return d.toTimeString().slice(0,5); }
+function fmtDate(d){ return new Date(d).toLocaleDateString('ar-EG',{day:'numeric',month:'short'}); }
+function fmtDateTime(d){ return new Date(d).toLocaleString('ar-EG',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }
+function showToast(msg){ state.toast = msg; render(); setTimeout(()=>{ state.toast=null; render(); }, 2600); }
+
+async function checkWaStatus(){
+  waPoll.checking = true;
+  try{
+    const res = await fetch(state.settings.whatsappServerUrl + '/status', { method:'GET' });
+    const data = await res.json();
+    waPoll.ready = !!data.ready;
+    waPoll.qr = data.qr || null;
+    waPoll.lastError = null;
+  }catch(e){
+    waPoll.ready = false; waPoll.qr = null;
+    waPoll.lastError = 'لا يمكن الوصول للسيرفر';
+  }
+  waPoll.checking = false;
+  if(state.currentUser && state.currentUser.role==='admin' && state.adminTab==='whatsapp') render();
+}
+setInterval(()=>{
+  if(state.currentUser && state.currentUser.role==='admin' && state.adminTab==='whatsapp') checkWaStatus();
+}, 3000);
+
+async function sendWhatsAppMessage(phone, message){
+  if(!phone) return;
+  try{
+    await fetch(state.settings.whatsappServerUrl + '/send-message', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ phone, message })
+    });
+  }catch(e){ /* server not running / not connected — notification still stays inside the app */ }
+}
+
+function userPoints(userId){
+  return state.points.filter(p=>p.userId===userId).reduce((s,p)=>s+p.points,0);
+}
+
+/* ---------------- AUTH ---------------- */
+async function handleLogin(e){
+  e.preventDefault();
+  const email = e.target.email.value.trim();
+  const pass = e.target.password.value;
+  const res = await apiPost('login', { email, password: pass });
+  if(res.error){ state.loginError = 'البريد الإلكتروني أو كلمة السر غير صحيحة'; render(); return; }
+  state.loginError = '';
+  await refresh();
+}
+async function handleLogout(){
+  await apiPost('logout', {});
+  state.currentUser = null; render();
+}
+
+async function handleSetupAdmin(e){
+  e.preventDefault();
+  const f = e.target;
+  const res = await apiPost('setupAdmin', { name: f.name.value.trim(), email: f.email.value.trim(), password: f.password.value });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+}
+
+/* ---------------- EMPLOYEES (admin) ---------------- */
+async function handleAddEmployee(e){
+  e.preventDefault();
+  const f = e.target;
+  const res = await apiPost('addEmployee', {
+    name: f.name.value.trim(), email: f.email.value.trim(), password: f.password.value,
+    department: f.department.value.trim(), workStart: f.workStart.value, phone: f.phone.value.trim()
+  });
+  if(res.error){ showToast(res.error); return; }
+  state.empModal = false;
+  await refresh();
+  showToast('تمت إضافة الموظف بنجاح');
+}
+async function handleRemoveEmployee(id){
+  await apiPost('removeEmployee', { id });
+  await refresh();
+  showToast('تم حذف الموظف');
+}
+
+/* ---------------- ATTENDANCE ---------------- */
+function todayRecord(userId){
+  return state.attendance.find(a=>a.userId===userId && a.date===todayStr());
+}
+async function checkIn(){
+  const res = await apiPost('checkIn', {});
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+}
+async function checkOut(){
+  const res = await apiPost('checkOut', {});
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+}
+async function markAbsent(userId, date){
+  const res = await apiPost('markAbsent', { userId, date });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+}
+
+/* ---------------- TASKS ---------------- */
+let selectedAssignees = [];
+function openTaskModal(){ selectedAssignees = []; state.taskModal = true; render(); }
+function toggleAssignee(id){
+  selectedAssignees = selectedAssignees.includes(id) ? selectedAssignees.filter(x=>x!==id) : [...selectedAssignees, id];
+  render();
+}
+async function handleCreateTask(e){
+  e.preventDefault();
+  const f = e.target;
+  if(selectedAssignees.length===0){ showToast('اختر موظف واحد على الأقل'); return; }
+  const res = await apiPost('createTask', {
+    title: f.title.value.trim(), description: f.description.value.trim(),
+    priority: f.priority.value, deadline: f.deadline.value, assignees: selectedAssignees
+  });
+  if(res.error){ showToast(res.error); return; }
+  state.taskModal = false;
+  await refresh();
+  showToast('تم إنشاء المهمة وإرسال الإشعارات');
+}
+function taskStatus(task){
+  const allDone = task.assignees.every(a=>a.done);
+  if(allDone) return 'done';
+  if(task.deadline && new Date(task.deadline) < new Date()) return 'late';
+  return 'progress';
+}
+async function toggleAssigneeDone(taskId, userId){
+  const res = await apiPost('toggleAssignee', { taskId, userId });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+}
+
+/* ---------------- DERIVED / REPORTS ---------------- */
+function monthRange(){
+  const d = new Date(); const y=d.getFullYear(), m=d.getMonth();
+  return { start:new Date(y,m,1), end:new Date(y,m+1,0,23,59,59) };
+}
+function monthlyReport(userId){
+  const {start,end} = monthRange();
+  const att = state.attendance.filter(a=>a.userId===userId && new Date(a.date)>=start && new Date(a.date)<=end);
+  const present = att.filter(a=>a.status==='present').length;
+  const late = att.filter(a=>a.status==='late').length;
+  const absent = att.filter(a=>a.status==='absent').length;
+  const myTasks = state.tasks.filter(t=>t.assignees.some(a=>a.userId===userId));
+  const doneOnAssignee = t=>t.assignees.find(a=>a.userId===userId).done;
+  const completed = myTasks.filter(doneOnAssignee).length;
+  const late_tasks = myTasks.filter(t=> !doneOnAssignee(t) && t.deadline && new Date(t.deadline)<new Date()).length;
+  const pts = state.points.filter(p=>p.userId===userId && new Date(p.date)>=start && new Date(p.date)<=end).reduce((s,p)=>s+p.points,0);
+  return { present, late, absent, totalTasks: myTasks.length, completed, late_tasks, points: pts };
+}
+function leaderboard(){
+  return state.users.filter(u=>u.role==='employee').map(u=>({u, pts: userPoints(u.id)})).sort((a,b)=>b.pts-a.pts);
+}
+
+/* ================= RENDER ================= */
+function render(){
+  const app = document.getElementById('app');
+  if(state.loading){ app.innerHTML = `<div class="auth-wrap"><div style="color:var(--text-muted);font-weight:700;">جارِ التحميل…</div></div>`; return; }
+  if(state.fatalError){
+    app.innerHTML = `<div class="auth-wrap"><div class="auth-card"><div class="auth-error" style="margin-bottom:0;">${state.fatalError}</div><p class="auth-note">تأكد من إنشاء قاعدة البيانات واستيراد schema.sql، وتحديث بيانات الاتصال في ملف api/config.php.</p></div></div>`;
+    return;
+  }
+  if(!state.hasUsers){ app.innerHTML = renderSetup(); attachSetupEvents(); return; }
+  if(!state.currentUser){ app.innerHTML = renderLogin(); attachLoginEvents(); return; }
+  app.innerHTML = state.currentUser.role==='admin' ? renderAdmin() : renderEmployee();
+  attachAppEvents();
+}
+
+function brandHeader(){
+  return `<div class="brand"><div class="brand-mark"></div><div class="brand-name">سوبر <span>آبل</span></div></div>`;
+}
+
+function renderSetup(){
+  return `
+  <div class="auth-wrap"><div class="auth-card">
+    ${brandHeader()}
+    <h1 class="auth-title">إعداد النظام لأول مرة</h1>
+    <p class="auth-sub">أنشئ حساب المدير الرئيسي للبدء بإدارة الفريق</p>
+    <form id="setupForm">
+      <div class="field"><label>الاسم الكامل</label><input name="name" required placeholder="مثال: أحمد يوسف"/></div>
+      <div class="field"><label>البريد الإلكتروني</label><input name="email" type="email" required placeholder="admin@superapple.com"/></div>
+      <div class="field"><label>كلمة السر</label><input name="password" type="password" required minlength="4" placeholder="••••••••"/></div>
+      <button class="btn btn-primary" type="submit">إنشاء حساب المدير والدخول</button>
+    </form>
+    <div class="auth-note">🔒 بياناتك محفوظة الآن بقاعدة بيانات حقيقية خاصة بموقعك، وكلمات السر مشفّرة بالكامل.</div>
+  </div></div>`;
+}
+function attachSetupEvents(){ document.getElementById('setupForm').onsubmit = handleSetupAdmin; }
+
+function renderLogin(){
+  return `
+  <div class="auth-wrap"><div class="auth-card">
+    ${brandHeader()}
+    <h1 class="auth-title">تسجيل الدخول</h1>
+    <p class="auth-sub">أدخل بريدك الإلكتروني وكلمة السر للوصول إلى لوحتك</p>
+    ${state.loginError ? `<div class="auth-error">${state.loginError}</div>` : ''}
+    <form id="loginForm">
+      <div class="field"><label>البريد الإلكتروني</label><input name="email" type="email" required placeholder="you@superapple.com"/></div>
+      <div class="field"><label>كلمة السر</label><input name="password" type="password" required placeholder="••••••••"/></div>
+      <button class="btn btn-primary" type="submit">دخول</button>
+    </form>
+    <div class="auth-note">تحتاج حساب جديد؟ يقوم المدير بإضافتك من لوحة "الموظفين".</div>
+  </div></div>`;
+}
+function attachLoginEvents(){ document.getElementById('loginForm').onsubmit = handleLogin; }
+
+function sidebarNav(items, activeKey, tabState){
+  return items.map(it=>`
+    <button class="nav-item ${tabState===it.key?'active':''}" data-tab="${it.key}">
+      <span>${it.icon}</span><span>${it.label}</span>
+    </button>`).join('');
+}
+
+function statusBadge(status){
+  const map = {
+    present:['حاضر','badge-success'], late:['متأخر','badge-warning'], absent:['غائب','badge-danger'],
+    done:['مكتملة','badge-success'], late_task:['متأخرة','badge-danger'], progress:['قيد التنفيذ','badge-primary'],
+    high:['عالية','badge-danger'], medium:['متوسطة','badge-warning'], low:['منخفضة','badge-muted']
+  };
+  const [label,cls] = map[status] || [status,'badge-muted'];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+function notifBell(){
+  const mine = state.notifications.filter(n=>n.userId===state.currentUser.id);
+  return `<button class="bell-btn" data-tab="notifications">🔔${mine.length?'<span class="bell-dot"></span>':''}</button>`;
+}
+
+/* ---------------- ADMIN APP ---------------- */
+function renderAdmin(){
+  const nav = [
+    {key:'dashboard', icon:'📊', label:'نظرة عامة'},
+    {key:'employees', icon:'👥', label:'الموظفون'},
+    {key:'tasks', icon:'🗂️', label:'المهام'},
+    {key:'attendance', icon:'⏱️', label:'الدوام'},
+    {key:'rewards', icon:'🏆', label:'النقاط والمكافآت'},
+    {key:'reports', icon:'📈', label:'التقارير'},
+    {key:'whatsapp', icon:'📱', label:'ربط واتساب'},
+    {key:'notifications', icon:'🔔', label:'الإشعارات'},
+  ];
+  return `
+  <div class="shell">
+    <div class="sidebar">
+      ${brandHeader()}
+      ${sidebarNav(nav, null, state.adminTab)}
+      <div class="sidebar-foot">
+        <div class="user-chip"><div class="avatar">${state.currentUser.name[0]}</div>
+          <div><div class="user-chip-name">${state.currentUser.name}</div><div class="user-chip-role">مدير</div></div></div>
+        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" id="logoutBtn">تسجيل الخروج</button>
+      </div>
+    </div>
+    <div class="main">
+      <div class="topbar">
+        <div><h1 class="page-title">${adminTitles()[state.adminTab]}</h1><p class="page-sub">${adminSubs()[state.adminTab]}</p></div>
+        ${notifBell()}
+      </div>
+      ${adminTabContent()}
+    </div>
+  </div>
+  ${state.empModal ? employeeModal() : ''}
+  ${state.taskModal ? taskModal() : ''}
+  ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
+  `;
+}
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', attendance:'مراقبة الدوام', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', whatsapp:'ربط واتساب', notifications:'سجل الإشعارات'}; }
+function adminSubs(){ return {
+  dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
+  tasks:'إنشاء متابعة المهام الفردية والمشتركة', attendance:'حالة الحضور والانصراف لجميع الموظفين',
+  rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي',
+  whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', notifications:'كل التنبيهات المُرسلة للفريق'
+}; }
+
+function adminTabContent(){
+  switch(state.adminTab){
+    case 'dashboard': return adminDashboard();
+    case 'employees': return adminEmployees();
+    case 'tasks': return adminTasks();
+    case 'attendance': return adminAttendance();
+    case 'rewards': return adminRewards();
+    case 'reports': return adminReports();
+    case 'whatsapp': return adminWhatsapp();
+    case 'notifications': return notificationsList(true);
+  }
+}
+
+function adminDashboard(){
+  const employees = state.users.filter(u=>u.role==='employee');
+  const todayRecs = state.attendance.filter(a=>a.date===todayStr());
+  const present = todayRecs.filter(a=>a.status==='present').length;
+  const late = todayRecs.filter(a=>a.status==='late').length;
+  const noRecord = employees.length - todayRecs.length;
+  const activeTasks = state.tasks.filter(t=>taskStatus(t)!=='done').length;
+  const doneTasks = state.tasks.filter(t=>taskStatus(t)==='done').length;
+  const top = leaderboard().slice(0,3);
+
+  return `
+  ${whatsappBanner()}
+  <div class="grid grid-4" style="margin-bottom:16px;">
+    <div class="card stat-card"><div class="stat-label">عدد الموظفين</div><div class="stat-value">${employees.length}</div></div>
+    <div class="card stat-card"><div class="stat-label">حاضرون اليوم</div><div class="stat-value" style="color:var(--success)">${present}</div><div class="stat-sub">${late} متأخر / ${noRecord} لم يسجل بعد</div></div>
+    <div class="card stat-card"><div class="stat-label">مهام قيد التنفيذ</div><div class="stat-value" style="color:var(--primary)">${activeTasks}</div></div>
+    <div class="card stat-card"><div class="stat-label">مهام مكتملة</div><div class="stat-value" style="color:var(--success)">${doneTasks}</div></div>
+  </div>
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="section-title">حالة الفريق اليوم</div>
+      ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد. أضف أول موظف من تبويب "الموظفون".</div>`:`
+      <table><thead><tr><th>الموظف</th><th>القسم</th><th>الحالة</th><th>وقت الحضور</th></tr></thead><tbody>
+      ${employees.map(e=>{
+        const r = todayRecs.find(a=>a.userId===e.id);
+        return `<tr><td>${e.name}</td><td>${e.department}</td><td>${r?statusBadge(r.status):'<span class="badge badge-muted">لم يسجل</span>'}</td><td>${r?.checkIn||'—'}</td></tr>`;
+      }).join('')}
+      </tbody></table>`}
+    </div>
+    <div class="card">
+      <div class="section-title">🏆 الأعلى نقاطًا</div>
+      ${top.length===0?`<div class="empty">لا توجد نقاط بعد</div>`:top.map((t,i)=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${i<top.length-1?'border-bottom:1px solid var(--border);':''}">
+          <div class="rank-pill">${i+1}</div>
+          <div class="avatar" style="width:30px;height:30px;font-size:12px;">${t.u.name[0]}</div>
+          <div style="flex:1;font-weight:700;font-size:13.5px;">${t.u.name}</div>
+          <div style="font-weight:800;color:var(--primary);">${t.pts}</div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function adminEmployees(){
+  const employees = state.users.filter(u=>u.role==='employee');
+  return `
+  <div class="card">
+    <div class="section-title">قائمة الموظفين (${employees.length}) <button class="btn btn-primary btn-sm" id="openEmpModal">+ إضافة موظف</button></div>
+    ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد. اضغط "إضافة موظف" للبدء.</div>`:`
+    <table><thead><tr><th>الاسم</th><th>البريد الإلكتروني</th><th>واتساب</th><th>القسم</th><th>وقت الدوام</th><th>النقاط</th><th></th></tr></thead><tbody>
+    ${employees.map(e=>`
+      <tr><td>${e.name}</td><td style="color:var(--text-muted)">${e.email}</td><td style="color:var(--text-muted)" dir="ltr">${e.phone||'—'}</td><td>${e.department}</td><td>${e.workStart}</td>
+      <td><span class="badge badge-primary">${userPoints(e.id)}</span></td>
+      <td><button class="btn btn-danger btn-sm" data-remove-emp="${e.id}">حذف</button></td></tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+function employeeModal(){
+  return `<div class="modal-bg" id="empModalBg"><div class="modal">
+    <h3 class="modal-title">إضافة موظف جديد</h3>
+    <form id="empForm">
+      <div class="field"><label>الاسم الكامل</label><input name="name" required/></div>
+      <div class="field"><label>البريد الإلكتروني</label><input name="email" type="email" required/></div>
+      <div class="field"><label>كلمة السر المؤقتة</label><input name="password" type="password" required minlength="4"/></div>
+      <div class="form-row">
+        <div class="field"><label>القسم</label><input name="department" placeholder="مثال: المحتوى"/></div>
+        <div class="field"><label>وقت بدء الدوام</label><input name="workStart" type="time" value="${state.settings.workStart}"/></div>
+      </div>
+      <div class="field"><label>رقم الواتساب (مع كود الدولة، بدون + أو أصفار)</label><input name="phone" required placeholder="مثال: 970591234567"/></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="closeEmpModal" style="flex:1;">إلغاء</button>
+        <button type="submit" class="btn btn-primary" style="flex:1;">إضافة</button>
+      </div>
+    </form>
+  </div></div>`;
+}
+
+function adminTasks(){
+  return `
+  <div class="section-title" style="margin-bottom:14px;">كل المهام (${state.tasks.length}) <button class="btn btn-primary btn-sm" id="openTaskModal">+ مهمة جديدة</button></div>
+  ${state.tasks.length===0?`<div class="card"><div class="empty">لا توجد مهام بعد. أنشئ أول مهمة لفريقك.</div></div>`:
+  state.tasks.map(t=>taskCard(t, true)).join('')}
+  `;
+}
+
+function taskCard(t, adminView){
+  const status = taskStatus(t);
+  const statusKey = status==='done'?'done':status==='late'?'late_task':'progress';
+  return `
+  <div class="task-card">
+    <div class="task-top">
+      <div><div class="task-title">${t.title}</div>${t.description?`<div class="task-desc">${t.description}</div>`:''}</div>
+      ${statusBadge(statusKey)}
+    </div>
+    <div class="task-meta">
+      ${statusBadge(t.priority)}
+      ${t.deadline?`<span>⏳ الموعد: ${fmtDate(t.deadline)}</span>`:''}
+      <span>👥 ${t.assignees.length} موظف</span>
+    </div>
+    ${t.assignees.map(a=>{
+      const u = state.users.find(u=>u.id===a.userId);
+      const canToggle = !adminView && a.userId===state.currentUser.id;
+      return `<div class="assignee-row">
+        <span>${u?u.name:'—'}</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${a.done?`<span style="color:var(--success);font-size:11.5px;font-weight:700;">تم ✓</span>`:''}
+          <div class="check ${a.done?'done':''}" ${canToggle?`data-toggle-assignee="${t.id}|${a.userId}"`:''} style="${canToggle?'':'cursor:default;'}">${a.done?'✓':''}</div>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function adminAttendance(){
+  const employees = state.users.filter(u=>u.role==='employee');
+  const dates = [...new Set(state.attendance.map(a=>a.date))].sort().reverse().slice(0,14);
+  return `
+  <div class="card">
+    <div class="section-title">سجل الحضور (آخر الأيام المسجّلة)</div>
+    ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد</div>`:`
+    <table><thead><tr><th>الموظف</th>${dates.map(d=>`<th>${fmtDate(d)}</th>`).join('')}</tr></thead><tbody>
+    ${employees.map(e=>`<tr><td>${e.name}</td>${dates.map(d=>{
+      const r = state.attendance.find(a=>a.userId===e.id && a.date===d);
+      return `<td>${r?statusBadge(r.status):`<button class="btn btn-ghost btn-sm" data-mark-absent="${e.id}|${d}" style="padding:4px 8px;font-size:11px;">تعليم غياب</button>`}</td>`;
+    }).join('')}</tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+function adminRewards(){
+  const s = state.settings;
+  return `
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="section-title">🏆 لوحة الترتيب</div>
+      ${leaderboard().map((t,i)=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+          <div class="rank-pill">${i+1}</div>
+          <div class="avatar" style="width:32px;height:32px;font-size:13px;">${t.u.name[0]}</div>
+          <div style="flex:1;"><div style="font-weight:700;font-size:13.5px;">${t.u.name}</div><div style="font-size:11.5px;color:var(--text-faint)">${t.u.department}</div></div>
+          <div style="font-weight:800;color:var(--primary);font-size:15px;">${t.pts} نقطة</div>
+        </div>`).join('') || `<div class="empty">لا يوجد موظفون بعد</div>`}
+    </div>
+    <div class="card">
+      <div class="section-title">⚙️ قواعد النقاط</div>
+      <form id="settingsForm">
+        <div class="field"><label>نقاط إنجاز المهمة بالوقت</label><input type="number" name="pointsOnTime" value="${s.pointsOnTime}"/></div>
+        <div class="field"><label>مكافأة إنجاز مبكر (نقاط إضافية)</label><input type="number" name="pointsEarlyBonus" value="${s.pointsEarlyBonus}"/></div>
+        <div class="field"><label>نقاط الحضور الملتزم يوميًا</label><input type="number" name="pointsAttendance" value="${s.pointsAttendance}"/></div>
+        <div class="field"><label>خصم عند التأخير</label><input type="number" name="penaltyLate" value="${s.penaltyLate}"/></div>
+        <div class="field"><label>خصم عند الغياب</label><input type="number" name="penaltyAbsent" value="${s.penaltyAbsent}"/></div>
+        <div class="field"><label>وقت بداية الدوام الرسمي</label><input type="time" name="workStart" value="${s.workStart}"/></div>
+        <div class="field"><label>مهلة السماح بالدقائق</label><input type="number" name="graceMinutes" value="${s.graceMinutes}"/></div>
+        <button class="btn btn-primary" type="submit" style="width:100%;">حفظ القواعد</button>
+      </form>
+    </div>
+  </div>`;
+}
+
+function adminReports(){
+  const employees = state.users.filter(u=>u.role==='employee');
+  return `
+  <div class="card">
+    <div class="section-title">التقرير الشهري لكل موظف — ${new Date().toLocaleDateString('ar-EG',{month:'long', year:'numeric'})}</div>
+    ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد</div>`:`
+    <table><thead><tr><th>الموظف</th><th>حاضر</th><th>متأخر</th><th>غائب</th><th>مهام منجزة</th><th>مهام متأخرة</th><th>نقاط الشهر</th></tr></thead><tbody>
+    ${employees.map(e=>{ const r = monthlyReport(e.id);
+      return `<tr><td>${e.name}</td><td>${r.present}</td><td>${r.late}</td><td>${r.absent}</td><td>${r.completed}/${r.totalTasks}</td><td>${r.late_tasks}</td><td><span class="badge badge-primary">${r.points}</span></td></tr>`;
+    }).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+function adminWhatsapp(){
+  const employees = state.users.filter(u=>u.role==='employee');
+  const missingPhone = employees.filter(e=>!e.phone).length;
+  return `
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="section-title">حالة الاتصال</div>
+      <div class="field"><label>رابط سيرفر الواتساب (يشتغل على جهازك/سيرفرك)</label>
+        <input id="waUrlInput" value="${state.settings.whatsappServerUrl}" placeholder="http://localhost:3001" dir="ltr"/>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="waSaveUrl" style="margin-bottom:16px;">حفظ الرابط وإعادة الفحص</button>
+
+      ${waPoll.lastError ? `<div class="auth-error">تعذّر الوصول للسيرفر: ${waPoll.lastError}. تأكد إنه شغّال (node server.js).</div>` : ''}
+
+      ${waPoll.ready ? `
+        <div style="text-align:center;padding:20px;">
+          <div style="font-size:40px;margin-bottom:8px;">✅</div>
+          <div style="font-weight:800;color:var(--success);font-size:16px;">واتساب متصل ويعمل</div>
+          <p style="color:var(--text-muted);font-size:13px;margin-top:6px;">كل إشعار بيصير بالنظام رح ينبعث تلقائيًا كرسالة واتساب حقيقية.</p>
+        </div>
+      ` : waPoll.qr ? `
+        <div style="text-align:center;">
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">افتح واتساب على جوال الشركة ← الأجهزة المرتبطة ← ربط جهاز، وامسح الكود:</p>
+          <img src="${waPoll.qr}" style="width:220px;height:220px;border-radius:12px;border:1px solid var(--border);"/>
+        </div>
+      ` : `
+        <div class="empty">${waPoll.checking?'جارِ الاتصال بسيرفر واتساب...':'شغّل سيرفر الواتساب على جهازك أولًا (راجع ملف التعليمات)، وسيظهر هنا كود QR تلقائيًا.'}</div>
+      `}
+    </div>
+    <div class="card">
+      <div class="section-title">أرقام الموظفين</div>
+      ${missingPhone>0?`<div class="auth-error">${missingPhone} موظف بدون رقم واتساب مسجّل — عدّل بياناته من تبويب "الموظفون".</div>`:''}
+      ${employees.map(e=>`<div class="assignee-row"><span>${e.name}</span><span dir="ltr" style="color:var(--text-muted)">${e.phone||'لا يوجد رقم'}</span></div>`).join('') || `<div class="empty">لا يوجد موظفون بعد</div>`}
+      <button class="btn btn-primary btn-sm" id="waTestBtn" style="width:100%;margin-top:14px;" ${waPoll.ready?'':'disabled'}>إرسال رسالة تجربة لأول موظف</button>
+    </div>
+  </div>`;
+}
+
+function whatsappBanner(){
+  return `<div class="whatsapp-banner">
+    📱 <div><b>ملاحظة حول الواتساب:</b> هذا النموذج يعرض الإشعارات داخل النظام (جاهزة للربط). لتفعيل الإرسال الفعلي على واتساب، نحتاج لربط WhatsApp Business API في مرحلة التشغيل الحقيقي — وقتها كل إشعار هنا رح ينبعث تلقائيًا كرسالة واتساب حقيقية.</div>
+  </div>`;
+}
+
+function notificationsList(all){
+  const list = all ? state.notifications : state.notifications.filter(n=>n.userId===state.currentUser.id);
+  const icons = {welcome:'👋',late:'⏰',checkin:'✅',checkout:'🏁',task:'🗂️',points:'🏆',absent:'⚠️'};
+  return `<div class="card">
+    ${whatsappBanner()}
+    ${list.length===0?`<div class="empty">لا توجد إشعارات حتى الآن</div>`:list.slice(0,60).map(n=>{
+      const u = state.users.find(u=>u.id===n.userId);
+      return `<div class="notif-item"><div class="notif-icon">${icons[n.type]||'🔔'}</div>
+        <div><div class="notif-text">${all?`<b>${u?u.name:''}:</b> `:''}${n.message}</div><div class="notif-time">${fmtDateTime(n.createdAt)}</div></div></div>`;
+    }).join('')}
+  </div>`;
+}
+
+function taskModal(){
+  const employees = state.users.filter(u=>u.role==='employee');
+  return `<div class="modal-bg" id="taskModalBg"><div class="modal">
+    <h3 class="modal-title">إنشاء مهمة جديدة</h3>
+    <form id="taskForm">
+      <div class="field"><label>عنوان المهمة</label><input name="title" required/></div>
+      <div class="field"><label>الوصف</label><textarea name="description" rows="3" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;"></textarea></div>
+      <div class="form-row">
+        <div class="field"><label>الأولوية</label><select name="priority"><option value="medium">متوسطة</option><option value="high">عالية</option><option value="low">منخفضة</option></select></div>
+        <div class="field"><label>الموعد النهائي</label><input name="deadline" type="date" required/></div>
+      </div>
+      <div class="field"><label>إسناد إلى (يمكن اختيار أكثر من موظف)</label>
+        <div class="chip-select">
+          ${employees.length===0?'<span style="font-size:12.5px;color:var(--text-faint)">أضف موظفين أولًا</span>':
+          employees.map(e=>`<button type="button" class="chip ${selectedAssignees.includes(e.id)?'sel':''}" data-assignee-chip="${e.id}">${e.name}</button>`).join('')}
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="closeTaskModal" style="flex:1;">إلغاء</button>
+        <button type="submit" class="btn btn-primary" style="flex:1;">إنشاء المهمة</button>
+      </div>
+    </form>
+  </div></div>`;
+}
+
+/* ---------------- EMPLOYEE APP ---------------- */
+function renderEmployee(){
+  const nav = [
+    {key:'dashboard', icon:'🏠', label:'الرئيسية'},
+    {key:'tasks', icon:'🗂️', label:'مهامي'},
+    {key:'attendance', icon:'⏱️', label:'دوامي'},
+    {key:'points', icon:'🏆', label:'نقاطي'},
+    {key:'report', icon:'📈', label:'تقريري الشهري'},
+    {key:'notifications', icon:'🔔', label:'الإشعارات'},
+  ];
+  return `
+  <div class="shell">
+    <div class="sidebar">
+      ${brandHeader()}
+      ${sidebarNav(nav, null, state.empTab)}
+      <div class="sidebar-foot">
+        <div class="user-chip"><div class="avatar">${state.currentUser.name[0]}</div>
+          <div><div class="user-chip-name">${state.currentUser.name}</div><div class="user-chip-role">${state.currentUser.department}</div></div></div>
+        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" id="logoutBtn">تسجيل الخروج</button>
+      </div>
+    </div>
+    <div class="main">
+      <div class="topbar">
+        <div><h1 class="page-title">${empTitles()[state.empTab]}</h1><p class="page-sub">${empSubs()[state.empTab]}</p></div>
+        ${notifBell()}
+      </div>
+      ${empTabContent()}
+    </div>
+  </div>
+  ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
+  `;
+}
+function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي', points:'نقاطي وترتيبي', report:'تقريري الشهري', notifications:'الإشعارات'}; }
+function empSubs(){ return {
+  dashboard:'نظرة سريعة على يومك', tasks:'المهام المسندة لك بشكل فردي أو مشترك',
+  attendance:'سجل حضورك وانصرافك', points:'رصيدك من النقاط وترتيبك بين الفريق',
+  report:'أداؤك خلال الشهر الحالي', notifications:'كل التنبيهات الخاصة بك'
+}; }
+
+function empTabContent(){
+  switch(state.empTab){
+    case 'dashboard': return empDashboard();
+    case 'tasks': return empTasks();
+    case 'attendance': return empAttendance();
+    case 'points': return empPoints();
+    case 'report': return empReport();
+    case 'notifications': return notificationsList(false);
+  }
+}
+
+function empDashboard(){
+  const rec = todayRecord(state.currentUser.id);
+  const myTasks = state.tasks.filter(t=>t.assignees.some(a=>a.userId===state.currentUser.id));
+  const pending = myTasks.filter(t=>taskStatus(t)!=='done');
+  return `
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="section-title">تسجيل الدوام اليوم</div>
+      ${!rec ? `<button class="btn btn-primary attend-btn" id="checkInBtn">✅ تسجيل الحضور</button>` :
+        !rec.checkOut ? `<div style="margin-bottom:10px;">${statusBadge(rec.status)} <span style="color:var(--text-muted);font-size:13px;">حضرت الساعة ${rec.checkIn}</span></div><button class="btn attend-btn" style="background:var(--accent-tint);color:var(--accent);" id="checkOutBtn">🏁 تسجيل الانصراف</button>` :
+        `<div>${statusBadge(rec.status)} <span style="color:var(--text-muted);font-size:13px;">من ${rec.checkIn} إلى ${rec.checkOut}</span></div><p style="margin-top:10px;color:var(--text-faint);font-size:12.5px;">تم تسجيل دوامك بالكامل لليوم ✔️</p>`
+      }
+    </div>
+    <div class="card">
+      <div class="stat-label">رصيد نقاطك</div>
+      <div class="stat-value" style="color:var(--primary);font-size:34px;">${userPoints(state.currentUser.id)}</div>
+      <div class="stat-sub">مهامك المعلّقة: ${pending.length}</div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <div class="section-title">مهامي القادمة</div>
+    ${pending.length===0?`<div class="empty">لا توجد مهام معلقة حاليًا 🎉</div>`:pending.slice(0,4).map(t=>taskCard(t,false)).join('')}
+  </div>`;
+}
+
+function empTasks(){
+  const myTasks = state.tasks.filter(t=>t.assignees.some(a=>a.userId===state.currentUser.id));
+  return `${myTasks.length===0?`<div class="card"><div class="empty">لا توجد مهام مسندة إليك حاليًا</div></div>`:myTasks.map(t=>taskCard(t,false)).join('')}`;
+}
+
+function empAttendance(){
+  const mine = state.attendance.filter(a=>a.userId===state.currentUser.id).sort((a,b)=>b.date.localeCompare(a.date));
+  return `<div class="card">
+    <div class="section-title">سجل دوامي</div>
+    ${mine.length===0?`<div class="empty">لا يوجد سجل دوام بعد</div>`:`
+    <table><thead><tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th></tr></thead><tbody>
+    ${mine.map(a=>`<tr><td>${fmtDate(a.date)}</td><td>${a.checkIn||'—'}</td><td>${a.checkOut||'—'}</td><td>${statusBadge(a.status)}</td></tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+function empPoints(){
+  const rank = leaderboard();
+  const myRank = rank.findIndex(r=>r.u.id===state.currentUser.id)+1;
+  const myHistory = state.points.filter(p=>p.userId===state.currentUser.id).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  return `
+  <div class="grid grid-2">
+    <div class="card" style="text-align:center;">
+      <div class="stat-label">ترتيبك في الفريق</div>
+      <div class="stat-value" style="font-size:36px;color:var(--accent);">#${myRank||'-'}</div>
+      <div class="stat-sub">من أصل ${rank.length} موظف</div>
+    </div>
+    <div class="card" style="text-align:center;">
+      <div class="stat-label">إجمالي النقاط</div>
+      <div class="stat-value" style="font-size:36px;color:var(--primary);">${userPoints(state.currentUser.id)}</div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <div class="section-title">سجل النقاط</div>
+    ${myHistory.length===0?`<div class="empty">لا يوجد سجل بعد</div>`:myHistory.map(p=>`
+      <div class="assignee-row"><span>${p.reason}</span><b style="color:${p.points>=0?'var(--success)':'var(--danger)'}">${p.points>0?'+':''}${p.points}</b></div>
+    `).join('')}
+  </div>`;
+}
+
+function empReport(){
+  const r = monthlyReport(state.currentUser.id);
+  return `
+  <div class="grid grid-4">
+    <div class="card stat-card"><div class="stat-label">أيام الحضور</div><div class="stat-value" style="color:var(--success)">${r.present}</div></div>
+    <div class="card stat-card"><div class="stat-label">أيام التأخير</div><div class="stat-value" style="color:var(--warning)">${r.late}</div></div>
+    <div class="card stat-card"><div class="stat-label">أيام الغياب</div><div class="stat-value" style="color:var(--danger)">${r.absent}</div></div>
+    <div class="card stat-card"><div class="stat-label">نقاط الشهر</div><div class="stat-value" style="color:var(--primary)">${r.points}</div></div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <div class="section-title">المهام هذا الشهر</div>
+    <p style="font-size:14px;color:var(--text-muted);">أنجزت <b style="color:var(--text)">${r.completed}</b> من أصل <b style="color:var(--text)">${r.totalTasks}</b> مهمة مسندة إليك${r.late_tasks?`، منها <b style="color:var(--danger)">${r.late_tasks}</b> متأخرة عن الموعد.`:'.'}</p>
+  </div>`;
+}
+
+/* ---------------- EVENT WIRING ---------------- */
+function attachAppEvents(){
+  document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
+  document.querySelectorAll('[data-tab]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const tab = el.getAttribute('data-tab');
+      if(state.currentUser.role==='admin') state.adminTab = tab; else state.empTab = tab;
+      render();
+    });
+  });
+  document.getElementById('openEmpModal')?.addEventListener('click', ()=>{ state.empModal=true; render(); });
+  document.getElementById('closeEmpModal')?.addEventListener('click', ()=>{ state.empModal=false; render(); });
+  document.getElementById('empModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='empModalBg'){ state.empModal=false; render(); }});
+  document.getElementById('empForm')?.addEventListener('submit', handleAddEmployee);
+
+  document.getElementById('openTaskModal')?.addEventListener('click', openTaskModal);
+  document.getElementById('closeTaskModal')?.addEventListener('click', ()=>{ state.taskModal=false; render(); });
+  document.getElementById('taskModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='taskModalBg'){ state.taskModal=false; render(); }});
+  document.getElementById('taskForm')?.addEventListener('submit', handleCreateTask);
+  document.querySelectorAll('[data-assignee-chip]').forEach(el=>{
+    el.addEventListener('click', ()=> toggleAssignee(el.getAttribute('data-assignee-chip')));
+  });
+
+  document.querySelectorAll('[data-remove-emp]').forEach(el=>{
+    el.addEventListener('click', ()=> handleRemoveEmployee(el.getAttribute('data-remove-emp')));
+  });
+  document.querySelectorAll('[data-mark-absent]').forEach(el=>{
+    el.addEventListener('click', ()=>{ const [uid,d] = el.getAttribute('data-mark-absent').split('|'); markAbsent(uid,d); });
+  });
+  document.querySelectorAll('[data-toggle-assignee]').forEach(el=>{
+    el.addEventListener('click', ()=>{ const [tid,uid] = el.getAttribute('data-toggle-assignee').split('|'); toggleAssigneeDone(tid,uid); });
+  });
+
+  document.getElementById('checkInBtn')?.addEventListener('click', checkIn);
+  document.getElementById('checkOutBtn')?.addEventListener('click', checkOut);
+
+  document.getElementById('waSaveUrl')?.addEventListener('click', async ()=>{
+    const val = document.getElementById('waUrlInput').value.trim().replace(/\/$/,'');
+    await apiPost('updateWhatsappUrl', { url: val || 'http://localhost:3001' });
+    state.settings.whatsappServerUrl = val || 'http://localhost:3001';
+    checkWaStatus();
+    showToast('تم حفظ الرابط، جارِ الفحص...');
+  });
+  document.getElementById('waTestBtn')?.addEventListener('click', async ()=>{
+    const emp = state.users.find(u=>u.role==='employee' && u.phone);
+    if(!emp){ showToast('لا يوجد موظف برقم واتساب مسجّل'); return; }
+    await sendWhatsAppMessage(emp.phone, '[سوبر آبل] هذه رسالة تجربة من نظام إدارة الفريق ✅');
+    showToast('تم إرسال طلب الرسالة');
+  });
+  if(state.currentUser && state.currentUser.role==='admin' && state.adminTab==='whatsapp' && !waPoll.checking) checkWaStatus();
+
+  document.getElementById('settingsForm')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const f = e.target;
+    const res = await apiPost('updateSettings', {
+      workStart: f.workStart.value, graceMinutes:+f.graceMinutes.value,
+      pointsOnTime:+f.pointsOnTime.value, pointsEarlyBonus:+f.pointsEarlyBonus.value,
+      pointsAttendance:+f.pointsAttendance.value, penaltyLate:+f.penaltyLate.value, penaltyAbsent:+f.penaltyAbsent.value
+    });
+    if(res.error){ showToast(res.error); return; }
+    await refresh();
+    showToast('تم حفظ قواعد النقاط');
+  });
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,297 @@
+<?php
+/**
+ * نظام سوبر آبل — API الرئيسي (PHP + MySQL)
+ * كل الطلبات تمر من هون عبر ?action=...
+ */
+
+session_start();
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/db.php';
+
+function respond($data, $code = 200) {
+    http_response_code($code);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+function bodyInput() {
+    $raw = file_get_contents('php://input');
+    $data = json_decode($raw, true);
+    return is_array($data) ? $data : [];
+}
+
+function currentUserRow($pdo) {
+    if (empty($_SESSION['user_id'])) return null;
+    $stmt = $pdo->prepare("SELECT id, name, email, role, department, phone, work_start AS workStart, join_date AS joinDate FROM users WHERE id = ?");
+    $stmt->execute([$_SESSION['user_id']]);
+    $u = $stmt->fetch();
+    return $u ?: null;
+}
+
+function requireLogin($pdo) {
+    $u = currentUserRow($pdo);
+    if (!$u) respond(['error' => 'يجب تسجيل الدخول'], 401);
+    return $u;
+}
+
+function requireAdmin($pdo) {
+    $u = requireLogin($pdo);
+    if ($u['role'] !== 'admin') respond(['error' => 'صلاحية المدير مطلوبة'], 403);
+    return $u;
+}
+
+$action = $_GET['action'] ?? '';
+$method = $_SERVER['REQUEST_METHOD'];
+
+switch ($action) {
+
+    /* ============ حالة النظام العامة (تُستدعى دائمًا عند التحميل) ============ */
+    case 'bootstrap': {
+        $hasUsers = (bool) $pdo->query("SELECT COUNT(*) c FROM users")->fetch()['c'];
+        $currentUser = currentUserRow($pdo);
+        $settingsRow = $pdo->query("SELECT work_start AS workStart, grace_minutes AS graceMinutes,
+            points_on_time AS pointsOnTime, points_early_bonus AS pointsEarlyBonus, early_bonus_hours AS earlyBonusHours,
+            points_attendance AS pointsAttendance, penalty_late AS penaltyLate, penalty_absent AS penaltyAbsent,
+            whatsapp_server_url AS whatsappServerUrl FROM settings WHERE id = 1")->fetch();
+
+        $payload = ['hasUsers' => $hasUsers, 'currentUser' => $currentUser, 'settings' => $settingsRow ?: null];
+
+        if ($currentUser) {
+            $isAdmin = $currentUser['role'] === 'admin';
+
+            $payload['users'] = $pdo->query("SELECT id, name, email, role, department, phone, work_start AS workStart, join_date AS joinDate FROM users")->fetchAll();
+
+            $tasks = $pdo->query("SELECT id, title, description, priority, deadline, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
+            $aStmt = $pdo->prepare("SELECT user_id AS userId, done, completed_at AS completedAt FROM task_assignees WHERE task_id = ?");
+            foreach ($tasks as &$t) {
+                $aStmt->execute([$t['id']]);
+                $rows = $aStmt->fetchAll();
+                foreach ($rows as &$r) $r['done'] = (bool) $r['done'];
+                $t['assignees'] = $rows;
+            }
+            unset($t);
+            if (!$isAdmin) {
+                $tasks = array_values(array_filter($tasks, function ($t) use ($currentUser) {
+                    foreach ($t['assignees'] as $a) if ($a['userId'] == $currentUser['id']) return true;
+                    return false;
+                }));
+            }
+            $payload['tasks'] = $tasks;
+
+            if ($isAdmin) {
+                $payload['attendance'] = $pdo->query("SELECT id, user_id AS userId, date, check_in AS checkIn, check_out AS checkOut, status FROM attendance")->fetchAll();
+            } else {
+                $stmt = $pdo->prepare("SELECT id, user_id AS userId, date, check_in AS checkIn, check_out AS checkOut, status FROM attendance WHERE user_id = ?");
+                $stmt->execute([$currentUser['id']]);
+                $payload['attendance'] = $stmt->fetchAll();
+            }
+
+            $payload['points'] = $pdo->query("SELECT id, user_id AS userId, points, reason, created_at AS date FROM points")->fetchAll();
+
+            if ($isAdmin) {
+                $payload['notifications'] = $pdo->query("SELECT id, user_id AS userId, message, type, created_at AS createdAt FROM notifications ORDER BY created_at DESC")->fetchAll();
+            } else {
+                $stmt = $pdo->prepare("SELECT id, user_id AS userId, message, type, created_at AS createdAt FROM notifications WHERE user_id = ? ORDER BY created_at DESC");
+                $stmt->execute([$currentUser['id']]);
+                $payload['notifications'] = $stmt->fetchAll();
+            }
+        }
+        respond($payload);
+    }
+
+    /* ============ الإعداد الأول: إنشاء حساب المدير ============ */
+    case 'setupAdmin': {
+        $hasUsers = (bool) $pdo->query("SELECT COUNT(*) c FROM users")->fetch()['c'];
+        if ($hasUsers) respond(['error' => 'تم إعداد النظام مسبقًا'], 400);
+        $b = bodyInput();
+        if (empty($b['name']) || empty($b['email']) || empty($b['password'])) respond(['error' => 'كل الحقول مطلوبة'], 400);
+        $hash = password_hash($b['password'], PASSWORD_BCRYPT);
+        $stmt = $pdo->prepare("INSERT INTO users (name, email, password_hash, role, department, join_date) VALUES (?, ?, ?, 'admin', 'الإدارة', CURDATE())");
+        $stmt->execute([trim($b['name']), strtolower(trim($b['email'])), $hash]);
+        $_SESSION['user_id'] = $pdo->lastInsertId();
+        respond(['success' => true]);
+    }
+
+    /* ============ تسجيل الدخول / الخروج ============ */
+    case 'login': {
+        $b = bodyInput();
+        $stmt = $pdo->prepare("SELECT id, password_hash FROM users WHERE email = ?");
+        $stmt->execute([strtolower(trim($b['email'] ?? ''))]);
+        $u = $stmt->fetch();
+        if (!$u || !password_verify($b['password'] ?? '', $u['password_hash'])) {
+            respond(['error' => 'invalid'], 401);
+        }
+        $_SESSION['user_id'] = $u['id'];
+        respond(['success' => true]);
+    }
+
+    case 'logout': {
+        $_SESSION = [];
+        session_destroy();
+        respond(['success' => true]);
+    }
+
+    /* ============ إدارة الموظفين (مدير فقط) ============ */
+    case 'addEmployee': {
+        $admin = requireAdmin($pdo);
+        $b = bodyInput();
+        if (empty($b['name']) || empty($b['email']) || empty($b['password']) || empty($b['phone'])) {
+            respond(['error' => 'كل الحقول مطلوبة (بما فيها رقم الواتساب)'], 400);
+        }
+        $hash = password_hash($b['password'], PASSWORD_BCRYPT);
+        try {
+            $stmt = $pdo->prepare("INSERT INTO users (name, email, password_hash, role, department, phone, work_start, join_date) VALUES (?, ?, ?, 'employee', ?, ?, ?, CURDATE())");
+            $stmt->execute([
+                trim($b['name']), strtolower(trim($b['email'])), $hash,
+                trim($b['department']) ?: 'عام', trim($b['phone']), $b['workStart'] ?: '08:00'
+            ]);
+        } catch (PDOException $e) {
+            respond(['error' => 'البريد الإلكتروني مستخدم مسبقًا'], 400);
+        }
+        $newId = $pdo->lastInsertId();
+        $stmt = $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'welcome')");
+        $stmt->execute([$newId, "مرحبًا " . trim($b['name']) . "! تم إنشاء حسابك في نظام سوبر آبل."]);
+        respond(['success' => true]);
+    }
+
+    case 'removeEmployee': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $stmt = $pdo->prepare("DELETE FROM users WHERE id = ? AND role = 'employee'");
+        $stmt->execute([$b['id'] ?? 0]);
+        respond(['success' => true]);
+    }
+
+    /* ============ المهام ============ */
+    case 'createTask': {
+        $admin = requireAdmin($pdo);
+        $b = bodyInput();
+        if (empty($b['title']) || empty($b['assignees'])) respond(['error' => 'العنوان والموظفون المسندون مطلوبون'], 400);
+        $stmt = $pdo->prepare("INSERT INTO tasks (title, description, priority, deadline, created_by) VALUES (?, ?, ?, ?, ?)");
+        $stmt->execute([trim($b['title']), trim($b['description'] ?? ''), $b['priority'] ?: 'medium', $b['deadline'] ?: null, $admin['id']]);
+        $taskId = $pdo->lastInsertId();
+        $insA = $pdo->prepare("INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)");
+        $insN = $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'task')");
+        $deadlineTxt = $b['deadline'] ? date('d/m', strtotime($b['deadline'])) : 'غير محدد';
+        foreach ($b['assignees'] as $uid) {
+            $insA->execute([$taskId, $uid]);
+            $insN->execute([$uid, "مهمة جديدة: \"" . trim($b['title']) . "\" — الموعد النهائي {$deadlineTxt}."]);
+        }
+        respond(['success' => true]);
+    }
+
+    case 'toggleAssignee': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $taskId = $b['taskId'] ?? 0;
+        $userId = $b['userId'] ?? 0;
+        if ($user['role'] !== 'admin' && $user['id'] != $userId) respond(['error' => 'غير مسموح'], 403);
+
+        $stmt = $pdo->prepare("SELECT done FROM task_assignees WHERE task_id = ? AND user_id = ?");
+        $stmt->execute([$taskId, $userId]);
+        $row = $stmt->fetch();
+        if (!$row) respond(['error' => 'المهمة غير موجودة'], 404);
+        $newDone = $row['done'] ? 0 : 1;
+        $completedAt = $newDone ? date('Y-m-d H:i:s') : null;
+        $pdo->prepare("UPDATE task_assignees SET done = ?, completed_at = ? WHERE task_id = ? AND user_id = ?")
+            ->execute([$newDone, $completedAt, $taskId, $userId]);
+
+        if ($newDone) {
+            $stmt = $pdo->prepare("SELECT title, deadline FROM tasks WHERE id = ?");
+            $stmt->execute([$taskId]);
+            $task = $stmt->fetch();
+            $onTime = !$task['deadline'] || strtotime($completedAt) <= strtotime($task['deadline'] . ' 23:59:59');
+            if ($onTime) {
+                $s = $pdo->query("SELECT points_on_time, points_early_bonus, early_bonus_hours FROM settings WHERE id = 1")->fetch();
+                $pts = (int) $s['points_on_time'];
+                if ($task['deadline']) {
+                    $hoursEarly = (strtotime($task['deadline'] . ' 23:59:59') - strtotime($completedAt)) / 3600;
+                    if ($hoursEarly >= (int) $s['early_bonus_hours']) $pts += (int) $s['points_early_bonus'];
+                }
+                $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, ?)")->execute([$userId, $pts, "إنجاز مهمة: {$task['title']}"]);
+                $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'points')")->execute([$userId, "أحسنت! أنجزت \"{$task['title']}\" وحصلت على {$pts} نقطة."]);
+            } else {
+                $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'task')")->execute([$userId, "أنجزت \"{$task['title']}\" بعد الموعد النهائي."]);
+            }
+        }
+        respond(['success' => true]);
+    }
+
+    /* ============ الدوام ============ */
+    case 'checkIn': {
+        $user = requireLogin($pdo);
+        $today = date('Y-m-d');
+        $stmt = $pdo->prepare("SELECT id FROM attendance WHERE user_id = ? AND date = ?");
+        $stmt->execute([$user['id'], $today]);
+        if ($stmt->fetch()) respond(['error' => 'تم تسجيل حضورك اليوم بالفعل']);
+
+        $time = date('H:i:s');
+        $s = $pdo->query("SELECT grace_minutes, points_attendance, penalty_late FROM settings WHERE id = 1")->fetch();
+        $workStart = $user['workStart'] ?: '08:00:00';
+        $isLate = (strtotime($time) > strtotime($workStart) + ((int) $s['grace_minutes'] * 60));
+        $status = $isLate ? 'late' : 'present';
+
+        $pdo->prepare("INSERT INTO attendance (user_id, date, check_in, status) VALUES (?, ?, ?, ?)")
+            ->execute([$user['id'], $today, $time, $status]);
+
+        if ($isLate) {
+            $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'تأخير عن موعد الدوام')")->execute([$user['id'], -(int) $s['penalty_late']]);
+            $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'late')")->execute([$user['id'], "تم تسجيل حضورك الساعة {$time} (متأخر). تم خصم {$s['penalty_late']} نقطة."]);
+        } else {
+            $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'حضور في الوقت المحدد')")->execute([$user['id'], (int) $s['points_attendance']]);
+            $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'checkin')")->execute([$user['id'], "تم تسجيل حضورك الساعة {$time}. +{$s['points_attendance']} نقطة."]);
+        }
+        respond(['success' => true]);
+    }
+
+    case 'checkOut': {
+        $user = requireLogin($pdo);
+        $today = date('Y-m-d');
+        $stmt = $pdo->prepare("SELECT id, check_out FROM attendance WHERE user_id = ? AND date = ?");
+        $stmt->execute([$user['id'], $today]);
+        $rec = $stmt->fetch();
+        if (!$rec || $rec['check_out']) respond(['error' => 'لا يوجد تسجيل حضور مفتوح']);
+        $time = date('H:i:s');
+        $pdo->prepare("UPDATE attendance SET check_out = ? WHERE id = ?")->execute([$time, $rec['id']]);
+        $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'checkout')")->execute([$user['id'], "تم تسجيل انصرافك الساعة {$time}. يوم موفق!"]);
+        respond(['success' => true]);
+    }
+
+    case 'markAbsent': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $userId = $b['userId'] ?? 0;
+        $date = $b['date'] ?? date('Y-m-d');
+        $stmt = $pdo->prepare("SELECT id FROM attendance WHERE user_id = ? AND date = ?");
+        $stmt->execute([$userId, $date]);
+        if ($stmt->fetch()) respond(['error' => 'يوجد سجل لهذا اليوم بالفعل']);
+        $pdo->prepare("INSERT INTO attendance (user_id, date, status) VALUES (?, ?, 'absent')")->execute([$userId, $date]);
+        $s = $pdo->query("SELECT penalty_absent FROM settings WHERE id = 1")->fetch();
+        $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'غياب بدون تسجيل حضور')")->execute([$userId, -(int) $s['penalty_absent']]);
+        $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'absent')")->execute([$userId, "تم تسجيلك غائبًا بتاريخ {$date}. تم خصم {$s['penalty_absent']} نقطة."]);
+        respond(['success' => true]);
+    }
+
+    /* ============ إعدادات النقاط ============ */
+    case 'updateSettings': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("UPDATE settings SET work_start=?, grace_minutes=?, points_on_time=?, points_early_bonus=?, points_attendance=?, penalty_late=?, penalty_absent=? WHERE id = 1")
+            ->execute([
+                $b['workStart'] ?: '08:00', (int) ($b['graceMinutes'] ?? 15), (int) ($b['pointsOnTime'] ?? 20),
+                (int) ($b['pointsEarlyBonus'] ?? 10), (int) ($b['pointsAttendance'] ?? 5),
+                (int) ($b['penaltyLate'] ?? 5), (int) ($b['penaltyAbsent'] ?? 10)
+            ]);
+        respond(['success' => true]);
+    }
+
+    case 'updateWhatsappUrl': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("UPDATE settings SET whatsapp_server_url = ? WHERE id = 1")->execute([trim($b['url'] ?? '')]);
+        respond(['success' => true]);
+    }
+
+    default:
+        respond(['error' => 'إجراء غير معروف'], 404);
+}
