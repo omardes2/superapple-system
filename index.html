@@ -173,6 +173,12 @@
   .fingerprint-circle:disabled{opacity:.6;cursor:wait;}
   .welcome-panel{background:var(--surface-2);border-radius:var(--radius-sm);padding:13px 15px;margin-bottom:14px;font-size:12.5px;}
   .welcome-panel b{font-size:14px;}
+  .combo-dropdown{position:absolute;top:100%;right:0;left:0;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius-sm);margin-top:4px;max-height:180px;overflow-y:auto;box-shadow:var(--shadow);z-index:30;display:none;}
+  .combo-dropdown.show{display:block;}
+  .combo-item{padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:1px solid var(--border);}
+  .combo-item:last-child{border-bottom:none;}
+  .combo-item:hover, .combo-item.hl{background:var(--accent-tint);color:var(--primary);}
+  .combo-item-new{color:var(--accent);}
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:12px 20px;border-radius:100px;font-size:13.5px;font-weight:600;z-index:100;box-shadow:var(--shadow);}
   .rank-pill{width:26px;height:26px;border-radius:50%;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:var(--text-muted);}
 </style>
@@ -967,11 +973,10 @@ function taskInlineForm(){
         <div class="field"><label>الأولوية</label><select name="priority"><option value="medium">متوسطة</option><option value="high">عالية</option><option value="low">منخفضة</option></select></div>
         <div class="field"><label>الموعد النهائي</label><input name="deadline" type="date" required/></div>
       </div>
-      <div class="field"><label>الشركة / العميل (اختياري — اكتب اسمًا موجودًا أو جديدًا)</label>
-        <input name="clientName" list="clientsDatalist" placeholder="ابحث أو اكتب اسم الشركة..." autocomplete="off"/>
-        <datalist id="clientsDatalist">
-          ${(state.clients||[]).map(c=>`<option value="${c.name}"></option>`).join('')}
-        </datalist>
+      <div class="field" style="position:relative;">
+        <label>الشركة / العميل (اختياري — اكتب اسمًا موجودًا أو جديدًا)</label>
+        <input name="clientName" id="clientNameInput" placeholder="ابحث أو اكتب اسم الشركة..." autocomplete="off"/>
+        <div class="combo-dropdown" id="clientSuggestions"></div>
       </div>
       <div class="field"><label>إسناد إلى (يمكن اختيار أكثر من موظف)</label>
         <div class="chip-select">
@@ -1190,6 +1195,30 @@ function attachAppEvents(){
   document.getElementById('quickCreateTaskBtn')?.addEventListener('click', openTaskModal);
   document.getElementById('closeTaskModal')?.addEventListener('click', ()=>{ state.taskModal=false; render(); });
   document.getElementById('taskForm')?.addEventListener('submit', handleCreateTask);
+
+  const clientInput = document.getElementById('clientNameInput');
+  const clientDropdown = document.getElementById('clientSuggestions');
+  if(clientInput && clientDropdown){
+    const renderSuggestions = ()=>{
+      const q = clientInput.value.trim().toLowerCase();
+      const matches = (state.clients||[]).filter(c=>c.name.toLowerCase().includes(q));
+      if(!q){ clientDropdown.classList.remove('show'); clientDropdown.innerHTML=''; return; }
+      let html = matches.slice(0,6).map(c=>`<div class="combo-item" data-pick-client="${c.name}">${c.name}</div>`).join('');
+      const exact = matches.some(c=>c.name.toLowerCase()===q);
+      if(!exact) html += `<div class="combo-item combo-item-new" data-pick-client="${clientInput.value.trim()}">+ إضافة "${clientInput.value.trim()}" كشركة جديدة</div>`;
+      clientDropdown.innerHTML = html;
+      clientDropdown.classList.add('show');
+    };
+    clientInput.addEventListener('input', renderSuggestions);
+    clientInput.addEventListener('focus', renderSuggestions);
+    clientInput.addEventListener('blur', ()=> setTimeout(()=>clientDropdown.classList.remove('show'), 150));
+    clientDropdown.addEventListener('mousedown', (e)=>{
+      const item = e.target.closest('[data-pick-client]');
+      if(!item) return;
+      clientInput.value = item.getAttribute('data-pick-client');
+      clientDropdown.classList.remove('show');
+    });
+  }
   document.querySelectorAll('[data-assignee-chip]').forEach(el=>{
     el.addEventListener('click', ()=> toggleAssignee(el.getAttribute('data-assignee-chip'), el));
   });
