@@ -1,13 +1,9 @@
 <?php
 /**
- * عدّل القيم الأربعة أدناه ببيانات قاعدة البيانات التي أنشأتها
- * من لوحة تحكم الاستضافة (cPanel -> MySQL Databases).
- *
- * ملاحظة: عادة اسم القاعدة واسم المستخدم بيبدأو باسم حساب
- * الاستضافة تلقائيًا، مثال: yourcpanel_superapple
+ * بيانات الاتصال بقاعدة البيانات (Hostinger)
  */
 
 define('DB_HOST', 'localhost');
-define('DB_NAME', 'ضع_اسم_قاعدة_البيانات_هون');
-define('DB_USER', 'ضع_اسم_مستخدم_القاعدة_هون');
-define('DB_PASS', 'ضع_كلمة_سر_القاعدة_هون');
+define('DB_NAME', 'superapple');
+define('DB_USER', 'superapple');
+define('DB_PASS', '7hJ^k0F:Lv');
