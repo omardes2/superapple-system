@@ -4,10 +4,12 @@
  */
 
 function sendWhatsAppCloud($pdo, $phone, $bodyText) {
-    if (empty($phone)) return;
-    if (!function_exists('curl_init')) return; // امتداد curl غير مفعّل على هذه الاستضافة
+    if (empty($phone)) return ['success' => false, 'error' => 'لا يوجد رقم هاتف'];
+    if (!function_exists('curl_init')) return ['success' => false, 'error' => 'امتداد curl غير مفعّل على هذه الاستضافة'];
     $s = $pdo->query("SELECT whatsapp_phone_id, whatsapp_token, whatsapp_template FROM settings WHERE id = 1")->fetch();
-    if (empty($s['whatsapp_phone_id']) || empty($s['whatsapp_token'])) return; // غير مفعّل بعد
+    if (empty($s['whatsapp_phone_id']) || empty($s['whatsapp_token'])) {
+        return ['success' => false, 'error' => 'واتساب غير مفعّل بعد (Phone Number ID أو Access Token فاضي)'];
+    }
 
     $template = $s['whatsapp_template'] ?: 'hello_world';
     $isHelloWorld = ($template === 'hello_world');
@@ -29,7 +31,7 @@ function sendWhatsAppCloud($pdo, $phone, $bodyText) {
     }
 
     $ch = curl_init("https://graph.facebook.com/v20.0/{$s['whatsapp_phone_id']}/messages");
-    if ($ch === false) return; // curl غير متاح على هذه الاستضافة
+    if ($ch === false) return ['success' => false, 'error' => 'curl غير متاح على هذه الاستضافة'];
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST => true,
@@ -38,8 +40,25 @@ function sendWhatsAppCloud($pdo, $phone, $bodyText) {
         CURLOPT_TIMEOUT => 8,
         CURLOPT_SSL_VERIFYPEER => true,
     ]);
-    @curl_exec($ch);
+    $raw = curl_exec($ch);
+    $curlErr = curl_error($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+
+    $success = ($httpCode >= 200 && $httpCode < 300);
+    $responseText = $curlErr ?: $raw;
+
+    try {
+        $pdo->prepare("INSERT INTO whatsapp_log (phone, message, success, response) VALUES (?, ?, ?, ?)")
+            ->execute([$phone, $bodyText, $success ? 1 : 0, $responseText]);
+    } catch (\Throwable $e) { /* جدول السجل قد لا يكون موجودًا بعد على استضافات لم تحدّث قاعدة البيانات */ }
+
+    if (!$success) {
+        $decoded = json_decode($raw, true);
+        $friendly = $decoded['error']['message'] ?? ($curlErr ?: 'خطأ غير معروف');
+        return ['success' => false, 'error' => $friendly, 'httpCode' => $httpCode];
+    }
+    return ['success' => true];
 }
 
 // يسجّل إشعارًا داخل النظام + يبعت رسالة واتساب حقيقية بنفس الوقت

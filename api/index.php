@@ -402,8 +402,15 @@ switch ($action) {
         $b = bodyInput();
         $phone = trim($b['phone'] ?? '');
         if (!$phone) respond(['error' => 'رقم الهاتف مطلوب'], 400);
-        sendWhatsAppCloud($pdo, $phone, 'هذه رسالة تجربة من نظام سوبر آبل ✅');
+        $result = sendWhatsAppCloud($pdo, $phone, 'هذه رسالة تجربة من نظام سوبر آبل ✅');
+        if (!$result['success']) respond(['error' => $result['error']], 400);
         respond(['success' => true]);
+    }
+
+    case 'whatsappLog': {
+        requireAdmin($pdo);
+        $rows = $pdo->query("SELECT phone, success, response, created_at AS createdAt FROM whatsapp_log ORDER BY id DESC LIMIT 15")->fetchAll();
+        respond(['log' => $rows]);
     }
 
     /* ============ الأقسام ============ */

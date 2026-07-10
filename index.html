@@ -233,7 +233,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [],
+  clients: [], leaveRequests: [], departments: [], waLog: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -1389,6 +1389,15 @@ function adminWhatsapp(){
       <button class="btn btn-primary btn-sm" id="waTestBtn" style="width:100%;" ${isConnected?'':'disabled'}>إرسال رسالة تجربة</button>
       ${!isConnected?`<p style="font-size:11.5px;color:var(--text-faint);margin-top:8px;">فعّل الإعدادات من اليسار أولًا.</p>`:''}
     </div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <div class="section-title">سجل آخر محاولات الإرسال <button class="btn btn-ghost btn-sm" id="loadWaLogBtn">تحديث السجل</button></div>
+    <div id="waLogArea">
+      ${(state.waLog||[]).length===0?`<div class="empty">اضغط "تحديث السجل" لعرض آخر 15 محاولة إرسال</div>`:`
+      <table><thead><tr><th>الرقم</th><th>الحالة</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody>
+      ${state.waLog.map(l=>`<tr><td dir="ltr">${l.phone||'—'}</td><td>${l.success==1?'<span class="badge badge-success">نجح</span>':'<span class="badge badge-danger">فشل</span>'}</td><td style="font-size:11px;max-width:220px;overflow-wrap:anywhere;">${(l.response||'').slice(0,180)}</td><td style="font-size:11px;">${fmtDateTime(l.createdAt)}</td></tr>`).join('')}
+      </tbody></table>`}
+    </div>
   </div>`;
 }
 
@@ -1784,6 +1793,12 @@ function attachAppEvents(){
     const res = await apiPost('testWhatsapp', { phone });
     if(res.error){ showToast(res.error); return; }
     showToast('تم إرسال طلب الرسالة، تحقق من واتساب خلال ثوانٍ');
+  });
+  document.getElementById('loadWaLogBtn')?.addEventListener('click', async ()=>{
+    const res = await apiGet('whatsappLog');
+    if(res.error){ showToast(res.error); return; }
+    state.waLog = res.log || [];
+    render();
   });
 
   document.getElementById('settingsForm')?.addEventListener('submit', async (e)=>{
