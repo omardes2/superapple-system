@@ -300,6 +300,9 @@ switch ($action) {
         $stmt = $pdo->prepare("SELECT id FROM attendance WHERE user_id = ? AND date = ?");
         $stmt->execute([$user['id'], $today]);
         if ($stmt->fetch()) respond(['error' => 'تم تسجيل حضورك اليوم بالفعل']);
+        $b = bodyInput();
+        $lat = is_numeric($b['lat'] ?? null) ? $b['lat'] : null;
+        $lng = is_numeric($b['lng'] ?? null) ? $b['lng'] : null;
 
         $time = date('H:i:s');
         $s = $pdo->query("SELECT grace_minutes, points_attendance, penalty_late FROM settings WHERE id = 1")->fetch();
@@ -307,8 +310,8 @@ switch ($action) {
         $isLate = (strtotime($time) > strtotime($workStart) + ((int) $s['grace_minutes'] * 60));
         $status = $isLate ? 'late' : 'present';
 
-        $pdo->prepare("INSERT INTO attendance (user_id, date, check_in, status) VALUES (?, ?, ?, ?)")
-            ->execute([$user['id'], $today, $time, $status]);
+        $pdo->prepare("INSERT INTO attendance (user_id, date, check_in, status, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?)")
+            ->execute([$user['id'], $today, $time, $status, $lat, $lng]);
 
         if ($isLate) {
             $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'تأخير عن موعد الدوام')")->execute([$user['id'], -(int) $s['penalty_late']]);

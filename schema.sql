@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS attendance (
   check_in TIME DEFAULT NULL,
   check_out TIME DEFAULT NULL,
   status ENUM('present','late','absent') NOT NULL,
+  latitude DECIMAL(10,7) DEFAULT NULL,
+  longitude DECIMAL(10,7) DEFAULT NULL,
   UNIQUE KEY user_date (user_id, date),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

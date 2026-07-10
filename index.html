@@ -168,6 +168,11 @@
   .whatsapp-banner{display:flex;gap:10px;align-items:flex-start;background:var(--success-tint);border:1px solid rgba(31,174,122,0.25);padding:12px 14px;border-radius:var(--radius-sm);font-size:12.5px;color:#146B4D;line-height:1.8;margin-bottom:18px;}
   .empty{text-align:center;padding:40px 20px;color:var(--text-faint);font-size:13.5px;}
   .attend-btn{padding:16px;border-radius:var(--radius);width:100%;font-size:15px;font-weight:800;}
+  .fingerprint-circle{width:120px;height:120px;border-radius:50%;border:2.5px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;margin:18px auto;background:var(--surface-2);transition:.15s;color:var(--text-muted);}
+  .fingerprint-circle:hover{border-color:var(--accent);color:var(--accent);transform:scale(1.02);}
+  .fingerprint-circle:disabled{opacity:.6;cursor:wait;}
+  .welcome-panel{background:var(--surface-2);border-radius:var(--radius-sm);padding:13px 15px;margin-bottom:14px;font-size:12.5px;}
+  .welcome-panel b{font-size:14px;}
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:12px 20px;border-radius:100px;font-size:13.5px;font-weight:600;z-index:100;box-shadow:var(--shadow);}
   .rank-pill{width:26px;height:26px;border-radius:50%;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:var(--text-muted);}
 </style>
@@ -189,7 +194,7 @@ let state = {
   clients: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard',
-  taskModal: false, empModal: false, clientModal: false, scheduleModal: null, toast: null
+  taskModal: false, empModal: false, clientModal: false, scheduleModal: null, checkingIn: false, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
 
@@ -328,9 +333,23 @@ async function handleRemoveClient(id){
 function todayRecord(userId){
   return state.attendance.find(a=>a.userId===userId && a.date===todayStr());
 }
+function getGeoCoords(){
+  return new Promise(resolve=>{
+    if(!navigator.geolocation){ resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null),
+      { timeout: 6000 }
+    );
+  });
+}
 async function checkIn(){
-  const res = await apiPost('checkIn', {});
+  state.checkingIn = true; render();
+  const coords = await getGeoCoords();
+  const res = await apiPost('checkIn', coords || {});
+  state.checkingIn = false;
   if(res.error){ showToast(res.error); return; }
+  showToast(coords ? 'تم تسجيل الحضور مع التحقق من الموقع ✅' : 'تم تسجيل الحضور ✅');
   await refresh();
 }
 async function checkOut(){
@@ -393,7 +412,11 @@ function monthlyReport(userId){
   const completed = myTasks.filter(doneOnAssignee).length;
   const late_tasks = myTasks.filter(t=> !doneOnAssignee(t) && t.deadline && new Date(t.deadline)<new Date()).length;
   const pts = state.points.filter(p=>p.userId===userId && new Date(p.date)>=start && new Date(p.date)<=end).reduce((s,p)=>s+p.points,0);
-  return { present, late, absent, totalTasks: myTasks.length, completed, late_tasks, points: pts };
+  const u = state.users.find(u=>u.id===userId);
+  const daysWithHours = att.filter(a=>a.checkIn && a.checkOut);
+  const totalHours = Math.round(daysWithHours.reduce((s,a)=>s+(hoursDiff(a.checkIn,a.checkOut)||0),0)*10)/10;
+  const requiredHours = Math.round((present+late) * expectedHours(u) * 10)/10;
+  return { present, late, absent, totalTasks: myTasks.length, completed, late_tasks, points: pts, totalHours, requiredHours };
 }
 function leaderboard(){
   return state.users.filter(u=>u.role==='employee').map(u=>({u, pts: userPoints(u.id)})).sort((a,b)=>b.pts-a.pts);
@@ -864,9 +887,13 @@ function adminReports(){
   <div class="card">
     <div class="section-title">التقرير الشهري لكل موظف — ${new Date().toLocaleDateString('ar-EG',{month:'long', year:'numeric'})}</div>
     ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد</div>`:`
-    <table><thead><tr><th>الموظف</th><th>حاضر</th><th>متأخر</th><th>غائب</th><th>مهام منجزة</th><th>مهام متأخرة</th><th>نقاط الشهر</th></tr></thead><tbody>
+    <table><thead><tr><th>الموظف</th><th>حاضر</th><th>متأخر</th><th>غائب</th><th>الساعات الفعلية</th><th>الساعات المطلوبة</th><th>مهام منجزة</th><th>نقاط الشهر</th></tr></thead><tbody>
     ${employees.map(e=>{ const r = monthlyReport(e.id);
-      return `<tr><td>${e.name}</td><td>${r.present}</td><td>${r.late}</td><td>${r.absent}</td><td>${r.completed}/${r.totalTasks}</td><td>${r.late_tasks}</td><td><span class="badge badge-primary">${r.points}</span></td></tr>`;
+      const shortfall = r.totalHours < r.requiredHours;
+      return `<tr><td>${e.name}</td><td>${r.present}</td><td>${r.late}</td><td>${r.absent}</td>
+        <td style="color:${shortfall?'var(--warning)':'var(--success)'};font-weight:700;">${r.totalHours}س</td>
+        <td style="color:var(--text-faint);">${r.requiredHours}س</td>
+        <td>${r.completed}/${r.totalTasks}</td><td><span class="badge badge-primary">${r.points}</span></td></tr>`;
     }).join('')}
     </tbody></table>`}
   </div>`;
@@ -1013,13 +1040,7 @@ function empDashboard(){
   const pending = myTasks.filter(t=>taskStatus(t)!=='done');
   return `
   <div class="grid grid-2">
-    <div class="card">
-      <div class="section-title">تسجيل الدوام اليوم</div>
-      ${!rec ? `<button class="btn btn-primary attend-btn" id="checkInBtn">✅ تسجيل الحضور</button>` :
-        !rec.checkOut ? `<div style="margin-bottom:10px;">${statusBadge(rec.status)} <span style="color:var(--text-muted);font-size:13px;">حضرت الساعة ${rec.checkIn}</span></div><button class="btn attend-btn" style="background:var(--accent-tint);color:var(--accent);" id="checkOutBtn">🏁 تسجيل الانصراف</button>` :
-        `<div>${statusBadge(rec.status)} <span style="color:var(--text-muted);font-size:13px;">من ${rec.checkIn} إلى ${rec.checkOut}</span></div><p style="margin-top:10px;color:var(--text-faint);font-size:12.5px;">تم تسجيل دوامك بالكامل لليوم ✔️</p>`
-      }
-    </div>
+    ${attendanceCard(rec)}
     <div class="card">
       <div class="stat-label">رصيد نقاطك</div>
       <div class="stat-value" style="color:var(--primary);font-size:34px;">${userPoints(state.currentUser.id)}</div>
@@ -1029,6 +1050,46 @@ function empDashboard(){
   <div class="card" style="margin-top:16px;">
     <div class="section-title">مهامي القادمة</div>
     ${pending.length===0?`<div class="empty">لا توجد مهام معلقة حاليًا 🎉</div>`:pending.slice(0,4).map(t=>taskCard(t,false)).join('')}
+  </div>`;
+}
+
+const FINGERPRINT_SVG = `<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a8 8 0 00-8 8c0 3 1 5 1 7"/><path d="M12 2a8 8 0 018 8c0 1.5-.2 2.8-.5 4"/><path d="M8 20c-1-2-2-4.5-2-8a6 6 0 0112 0c0 1 0 2-.3 3"/><path d="M12 20c-1.2-2-2-4.5-2-8a2 2 0 014 0c0 2.5-.5 4-1 5.5"/><path d="M16 20c.7-1.5 1.3-3.3 1.3-5.5"/></svg>`;
+
+function attendanceCard(rec){
+  const u = state.currentUser;
+  const exp = expectedHours(u);
+  let body;
+  if(!rec){
+    body = `
+      <button class="fingerprint-circle" id="checkInBtn" ${state.checkingIn?'disabled':''}>
+        ${FINGERPRINT_SVG}
+        <span style="font-size:10.5px;font-weight:700;">${state.checkingIn?'جارِ التحقق...':'اضغط لتسجيل الحضور'}</span>
+      </button>
+      <div class="auth-error" style="margin-bottom:0;">لم تقم بتسجيل حضورك اليوم حتى الآن. يرجى الضغط فور بدء العمل الفعلي.</div>`;
+  } else if(!rec.checkOut){
+    body = `
+      <div style="text-align:center;margin-bottom:6px;">${statusBadge(rec.status)} <span style="color:var(--text-muted);font-size:12.5px;">حضرت الساعة ${rec.checkIn}</span></div>
+      <button class="fingerprint-circle" id="checkOutBtn" style="border-color:var(--accent);color:var(--accent);">
+        ${FINGERPRINT_SVG}
+        <span style="font-size:10.5px;font-weight:700;">اضغط لتسجيل الانصراف</span>
+      </button>`;
+  } else {
+    const worked = hoursDiff(rec.checkIn, rec.checkOut);
+    body = `<div style="text-align:center;padding:14px 0;">
+      <div style="font-size:36px;margin-bottom:6px;">✅</div>
+      <div style="font-weight:800;font-size:13.5px;">تم تسجيل دوامك بالكامل لليوم</div>
+      <div style="color:${worked>=exp?'var(--success)':'var(--warning)'};font-weight:800;margin-top:8px;font-size:15px;">${worked} من أصل ${exp} ساعة</div>
+    </div>`;
+  }
+  return `
+  <div class="card">
+    <div class="section-title">بصمة الحضور والانصراف الرقمية</div>
+    <p style="font-size:11.5px;color:var(--text-muted);margin-top:-8px;margin-bottom:14px;">تسجيل الدوام مع التحقق من الموقع الجغرافي الفعلي</p>
+    <div class="welcome-panel">
+      <div>أهلًا بك، <b>${u.name}</b></div>
+      <div style="color:var(--text-muted);margin-top:4px;">القسم: ${u.department} · الدوام المعتمد: <span dir="ltr">${(u.workStart||'').slice(0,5)} – ${(u.workEnd||'').slice(0,5)}</span></div>
+    </div>
+    ${body}
   </div>`;
 }
 
@@ -1079,11 +1140,12 @@ function empPoints(){
 
 function empReport(){
   const r = monthlyReport(state.currentUser.id);
+  const shortfall = r.totalHours < r.requiredHours;
   return `
   <div class="grid grid-4">
     <div class="card stat-card"><div class="stat-label">أيام الحضور</div><div class="stat-value" style="color:var(--success)">${r.present}</div></div>
     <div class="card stat-card"><div class="stat-label">أيام التأخير</div><div class="stat-value" style="color:var(--warning)">${r.late}</div></div>
-    <div class="card stat-card"><div class="stat-label">أيام الغياب</div><div class="stat-value" style="color:var(--danger)">${r.absent}</div></div>
+    <div class="card stat-card"><div class="stat-label">ساعات العمل الفعلية</div><div class="stat-value" style="color:${shortfall?'var(--warning)':'var(--success)'}">${r.totalHours}<span style="font-size:13px;color:var(--text-faint);"> / ${r.requiredHours}س</span></div></div>
     <div class="card stat-card"><div class="stat-label">نقاط الشهر</div><div class="stat-value" style="color:var(--primary)">${r.points}</div></div>
   </div>
   <div class="card" style="margin-top:16px;">
