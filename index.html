@@ -203,7 +203,7 @@ let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
   clients: [], leaveRequests: [], departments: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
-  adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview',
+  adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
@@ -445,26 +445,45 @@ async function toggleAssigneeDone(taskId, userId){
 }
 
 /* ---------------- DERIVED / REPORTS ---------------- */
-function monthRange(){
-  const d = new Date(); const y=d.getFullYear(), m=d.getMonth();
-  return { start:new Date(y,m,1), end:new Date(y,m+1,0,23,59,59) };
-}
-function monthlyReport(userId){
-  const {start,end} = monthRange();
-  const att = state.attendance.filter(a=>a.userId===userId && new Date(a.date)>=start && new Date(a.date)<=end);
+function computeReport(userId, from, to){
+  const att = state.attendance.filter(a=>a.userId===userId && a.date>=from && a.date<=to);
   const present = att.filter(a=>a.status==='present').length;
   const late = att.filter(a=>a.status==='late').length;
   const absent = att.filter(a=>a.status==='absent').length;
   const myTasks = state.tasks.filter(t=>t.assignees.some(a=>a.userId===userId));
   const doneOnAssignee = t=>t.assignees.find(a=>a.userId===userId).done;
-  const completed = myTasks.filter(doneOnAssignee).length;
+  const completedInRange = myTasks.filter(t=>{
+    const a = t.assignees.find(a=>a.userId===userId);
+    return a.done && a.completedAt && a.completedAt.slice(0,10)>=from && a.completedAt.slice(0,10)<=to;
+  }).length;
   const late_tasks = myTasks.filter(t=> !doneOnAssignee(t) && t.deadline && new Date(t.deadline)<new Date()).length;
-  const pts = state.points.filter(p=>p.userId===userId && new Date(p.date)>=start && new Date(p.date)<=end).reduce((s,p)=>s+p.points,0);
+  const pts = state.points.filter(p=>p.userId===userId && p.date.slice(0,10)>=from && p.date.slice(0,10)<=to).reduce((s,p)=>s+p.points,0);
   const u = state.users.find(u=>u.id===userId);
   const daysWithHours = att.filter(a=>a.checkIn && a.checkOut);
   const totalHours = Math.round(daysWithHours.reduce((s,a)=>s+(hoursDiff(a.checkIn,a.checkOut)||0),0)*10)/10;
   const requiredHours = Math.round((present+late) * expectedHours(u) * 10)/10;
-  return { present, late, absent, totalTasks: myTasks.length, completed, late_tasks, points: pts, totalHours, requiredHours };
+  return { present, late, absent, totalTasks: myTasks.length, completed: completedInRange, late_tasks, points: pts, totalHours, requiredHours };
+}
+function thisMonthRange(){
+  const d = new Date(); const y=d.getFullYear(), m=d.getMonth();
+  const start = new Date(y,m,1).toISOString().slice(0,10);
+  return { from: start, to: todayStr() };
+}
+function monthlyReport(userId){
+  const {from,to} = thisMonthRange();
+  return computeReport(userId, from, to);
+}
+function reportRangeFor(filter){
+  const now = new Date();
+  if(filter.preset==='today') return { from: todayStr(), to: todayStr() };
+  if(filter.preset==='thisMonth') return thisMonthRange();
+  if(filter.preset==='lastMonth'){
+    const y=now.getFullYear(), m=now.getMonth();
+    const start = new Date(y, m-1, 1).toISOString().slice(0,10);
+    const end = new Date(y, m, 0).toISOString().slice(0,10);
+    return { from:start, to:end };
+  }
+  return { from: filter.from || todayStr(), to: filter.to || todayStr() };
 }
 function leaderboard(){
   return state.users.filter(u=>u.role==='employee').map(u=>({u, pts: userPoints(u.id)})).sort((a,b)=>b.pts-a.pts);
@@ -992,7 +1011,22 @@ function adminReports(){
     {key:'points', label:'النقاط'},
     {key:'clients', label:'العملاء'},
   ];
+  const f = state.reportFilter;
+  const range = reportRangeFor(f);
+  const presets = [{k:'today',l:'اليوم'},{k:'thisMonth',l:'هذا الشهر'},{k:'lastMonth',l:'الشهر الماضي'},{k:'custom',l:'فترة مخصصة'}];
   return `
+  <div class="card" style="margin-bottom:14px;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      ${presets.map(p=>`<button class="btn btn-sm ${f.preset===p.k?'btn-primary':'btn-ghost'}" data-report-preset="${p.k}">${p.l}</button>`).join('')}
+      ${f.preset==='custom'?`
+        <input type="date" id="reportFromInput" value="${f.from||todayStr()}" style="padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:12px;background:var(--surface-2);"/>
+        <span style="font-size:12px;color:var(--text-faint);">إلى</span>
+        <input type="date" id="reportToInput" value="${f.to||todayStr()}" style="padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:12px;background:var(--surface-2);"/>
+        <button class="btn btn-primary btn-sm" id="applyReportRange">تطبيق</button>
+      `:''}
+      <span style="margin-right:auto;font-size:11.5px;color:var(--text-faint);">📅 ${fmtDate(range.from)} — ${fmtDate(range.to)}</span>
+    </div>
+  </div>
   <div class="subtab-nav">
     ${tabs.map(t=>`<button class="subtab-btn ${tab===t.key?'active':''}" data-reports-tab="${t.key}">${t.label}</button>`).join('')}
   </div>
@@ -1006,25 +1040,26 @@ function adminReports(){
 
 function reportsOverview(){
   const employees = state.users.filter(u=>u.role==='employee');
-  const {start,end} = monthRange();
+  const range = reportRangeFor(state.reportFilter);
+  const start = new Date(range.from+'T00:00:00'), end = new Date(range.to+'T23:59:59');
   const doneTasks = state.tasks.filter(t=>taskStatus(t)==='done');
   const lateTasks = state.tasks.filter(t=>taskStatus(t)==='late');
   const completionRate = state.tasks.length ? Math.round((doneTasks.length/state.tasks.length)*100) : 0;
   const monthPoints = state.points.filter(p=>new Date(p.date)>=start && new Date(p.date)<=end);
   const pointsIssued = monthPoints.filter(p=>p.points>0).reduce((s,p)=>s+p.points,0);
   const pointsDeducted = monthPoints.filter(p=>p.points<0).reduce((s,p)=>s+p.points,0);
-  const totalHours = employees.reduce((s,e)=>s+monthlyReport(e.id).totalHours,0);
-  const requiredHours = employees.reduce((s,e)=>s+monthlyReport(e.id).requiredHours,0);
+  const totalHours = employees.reduce((s,e)=>s+computeReport(e.id, range.from, range.to).totalHours,0);
+  const requiredHours = employees.reduce((s,e)=>s+computeReport(e.id, range.from, range.to).requiredHours,0);
   return `
   <div class="grid grid-4" style="margin-bottom:16px;">
     <div class="card stat-card"><div class="stat-label">عدد الموظفين</div><div class="stat-value">${employees.length}</div></div>
     <div class="card stat-card"><div class="stat-label">معدل إنجاز المهام</div><div class="stat-value" style="color:var(--success)">${completionRate}%</div></div>
     <div class="card stat-card"><div class="stat-label">مهام متأخرة حاليًا</div><div class="stat-value" style="color:var(--danger)">${lateTasks.length}</div></div>
-    <div class="card stat-card"><div class="stat-label">ساعات العمل هذا الشهر</div><div class="stat-value" style="color:${totalHours>=requiredHours?'var(--success)':'var(--warning)'}">${Math.round(totalHours)}<span style="font-size:13px;color:var(--text-faint);">/${Math.round(requiredHours)}س</span></div></div>
+    <div class="card stat-card"><div class="stat-label">ساعات العمل بالفترة المحددة</div><div class="stat-value" style="color:${totalHours>=requiredHours?'var(--success)':'var(--warning)'}">${Math.round(totalHours)}<span style="font-size:13px;color:var(--text-faint);">/${Math.round(requiredHours)}س</span></div></div>
   </div>
   <div class="grid grid-2">
     <div class="card">
-      <div class="section-title">نقاط الشهر</div>
+      <div class="section-title">نقاط الفترة المحددة</div>
       <div class="assignee-row"><span>نقاط مكتسبة</span><b style="color:var(--success)">+${pointsIssued}</b></div>
       <div class="assignee-row"><span>نقاط مخصومة</span><b style="color:var(--danger)">${pointsDeducted}</b></div>
       <div class="assignee-row"><span>الصافي</span><b style="color:var(--primary)">${pointsIssued+pointsDeducted}</b></div>
@@ -1040,12 +1075,13 @@ function reportsOverview(){
 
 function reportsEmployees(){
   const employees = state.users.filter(u=>u.role==='employee');
+  const range = reportRangeFor(state.reportFilter);
   return `
   <div class="card">
-    <div class="section-title">التقرير الشهري لكل موظف — ${new Date().toLocaleDateString('ar-EG',{month:'long', year:'numeric'})}</div>
+    <div class="section-title">تقرير الموظفين — ${fmtDate(range.from)} إلى ${fmtDate(range.to)}</div>
     ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد</div>`:`
-    <table><thead><tr><th>الموظف</th><th>حاضر</th><th>متأخر</th><th>غائب</th><th>الساعات الفعلية</th><th>الساعات المطلوبة</th><th>مهام منجزة</th><th>نقاط الشهر</th></tr></thead><tbody>
-    ${employees.map(e=>{ const r = monthlyReport(e.id);
+    <table><thead><tr><th>الموظف</th><th>حاضر</th><th>متأخر</th><th>غائب</th><th>الساعات الفعلية</th><th>الساعات المطلوبة</th><th>مهام منجزة</th><th>النقاط</th></tr></thead><tbody>
+    ${employees.map(e=>{ const r = computeReport(e.id, range.from, range.to);
       const shortfall = r.totalHours < r.requiredHours;
       return `<tr><td>${e.name}</td><td>${r.present}</td><td>${r.late}</td><td>${r.absent}</td>
         <td style="color:${shortfall?'var(--warning)':'var(--success)'};font-weight:700;">${r.totalHours}س</td>
@@ -1084,7 +1120,8 @@ function reportsTasks(){
 }
 
 function reportsPoints(){
-  const {start,end} = monthRange();
+  const range = reportRangeFor(state.reportFilter);
+  const start = new Date(range.from+'T00:00:00'), end = new Date(range.to+'T23:59:59');
   const monthPoints = state.points.filter(p=>new Date(p.date)>=start && new Date(p.date)<=end).sort((a,b)=>new Date(b.date)-new Date(a.date));
   return `
   <div class="grid grid-2">
@@ -1094,7 +1131,7 @@ function reportsPoints(){
         <div class="assignee-row"><span>${i+1}. ${t.u.name}</span><b style="color:var(--primary)">${t.pts}</b></div>`).join('') || `<div class="empty">لا يوجد بعد</div>`}
     </div>
     <div class="card">
-      <div class="section-title">سجل نقاط الشهر</div>
+      <div class="section-title">سجل نقاط الفترة المحددة</div>
       <div style="max-height:400px;overflow-y:auto;">
       ${monthPoints.length===0?`<div class="empty">لا يوجد سجل بعد</div>`:monthPoints.map(p=>{
         const u = state.users.find(u=>u.id===p.userId);
@@ -1443,6 +1480,24 @@ function attachAppEvents(){
   });
   document.querySelectorAll('[data-reports-tab]').forEach(el=>{
     el.addEventListener('click', ()=>{ state.reportsTab = el.getAttribute('data-reports-tab'); render(); });
+  });
+  document.querySelectorAll('[data-report-preset]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const preset = el.getAttribute('data-report-preset');
+      state.reportFilter.preset = preset;
+      if(preset==='custom' && !state.reportFilter.from){
+        state.reportFilter.from = todayStr(); state.reportFilter.to = todayStr();
+      }
+      render();
+    });
+  });
+  document.getElementById('applyReportRange')?.addEventListener('click', ()=>{
+    const from = document.getElementById('reportFromInput').value;
+    const to = document.getElementById('reportToInput').value;
+    if(!from || !to){ showToast('حدد التاريخين'); return; }
+    if(to < from){ showToast('تاريخ النهاية يجب أن يكون بعد البداية'); return; }
+    state.reportFilter.from = from; state.reportFilter.to = to;
+    render();
   });
 
   document.getElementById('openTaskModal')?.addEventListener('click', openTaskModal);
