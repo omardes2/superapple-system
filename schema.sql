@@ -77,7 +77,9 @@ CREATE TABLE IF NOT EXISTS settings (
   points_attendance INT DEFAULT 5,
   penalty_late INT DEFAULT 5,
   penalty_absent INT DEFAULT 10,
-  whatsapp_server_url VARCHAR(255) DEFAULT ''
+  whatsapp_phone_id VARCHAR(50) DEFAULT NULL,
+  whatsapp_token TEXT DEFAULT NULL,
+  whatsapp_template VARCHAR(100) DEFAULT 'hello_world'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO settings (id) VALUES (1)

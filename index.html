@@ -162,8 +162,7 @@ let state = {
   adminTab: 'dashboard', empTab: 'dashboard',
   taskModal: false, empModal: false, toast: null
 };
-const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappServerUrl:'http://localhost:3001' };
-let waPoll = { ready:false, qr:null, checking:false, lastError:null };
+const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
 
 async function apiGet(action){
   try{
@@ -211,35 +210,6 @@ function nowTime(){ const d=new Date(); return d.toTimeString().slice(0,5); }
 function fmtDate(d){ return new Date(d).toLocaleDateString('ar-EG',{day:'numeric',month:'short'}); }
 function fmtDateTime(d){ return new Date(d).toLocaleString('ar-EG',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }
 function showToast(msg){ state.toast = msg; render(); setTimeout(()=>{ state.toast=null; render(); }, 2600); }
-
-async function checkWaStatus(){
-  waPoll.checking = true;
-  try{
-    const res = await fetch(state.settings.whatsappServerUrl + '/status', { method:'GET' });
-    const data = await res.json();
-    waPoll.ready = !!data.ready;
-    waPoll.qr = data.qr || null;
-    waPoll.lastError = null;
-  }catch(e){
-    waPoll.ready = false; waPoll.qr = null;
-    waPoll.lastError = 'لا يمكن الوصول للسيرفر';
-  }
-  waPoll.checking = false;
-  if(state.currentUser && state.currentUser.role==='admin' && state.adminTab==='whatsapp') render();
-}
-setInterval(()=>{
-  if(state.currentUser && state.currentUser.role==='admin' && state.adminTab==='whatsapp') checkWaStatus();
-}, 3000);
-
-async function sendWhatsAppMessage(phone, message){
-  if(!phone) return;
-  try{
-    await fetch(state.settings.whatsappServerUrl + '/send-message', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ phone, message })
-    });
-  }catch(e){ /* server not running / not connected — notification still stays inside the app */ }
-}
 
 function userPoints(userId){
   return state.points.filter(p=>p.userId===userId).reduce((s,p)=>s+p.points,0);
@@ -668,44 +638,41 @@ function adminReports(){
 function adminWhatsapp(){
   const employees = state.users.filter(u=>u.role==='employee');
   const missingPhone = employees.filter(e=>!e.phone).length;
+  const s = state.settings;
+  const isConnected = !!(s.whatsappPhoneId && s.whatsappToken);
   return `
   <div class="grid grid-2">
     <div class="card">
-      <div class="section-title">حالة الاتصال</div>
-      <div class="field"><label>رابط سيرفر الواتساب (يشتغل على جهازك/سيرفرك)</label>
-        <input id="waUrlInput" value="${state.settings.whatsappServerUrl}" placeholder="http://localhost:3001" dir="ltr"/>
+      <div class="section-title">إعداد واتساب بزنس الرسمي</div>
+      <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px;line-height:1.8;">
+        القيم دي تلاقيها من <b>developers.facebook.com</b> ← تطبيقك ← WhatsApp ← إعداد واجهة API.
+      </p>
+      <form id="waForm">
+        <div class="field"><label>Phone Number ID</label><input name="phoneId" value="${s.whatsappPhoneId||''}" dir="ltr" placeholder="116143014681136"/></div>
+        <div class="field"><label>Access Token</label><input name="token" value="${s.whatsappToken||''}" dir="ltr" type="password" placeholder="EAAxxxxxxxx..."/></div>
+        <div class="field"><label>اسم القالب المعتمد (Template Name)</label><input name="template" value="${s.whatsappTemplate||'hello_world'}" dir="ltr" placeholder="hello_world"/></div>
+        <button class="btn btn-primary" type="submit" style="width:100%;">حفظ الإعدادات</button>
+      </form>
+      <div style="margin-top:16px;text-align:center;">
+        ${isConnected
+          ? `<span class="badge badge-success" style="padding:8px 16px;font-size:13px;">✅ الإعدادات محفوظة</span>`
+          : `<span class="badge badge-muted" style="padding:8px 16px;font-size:13px;">لسا ما انحفظت بيانات الاتصال</span>`}
       </div>
-      <button class="btn btn-ghost btn-sm" id="waSaveUrl" style="margin-bottom:16px;">حفظ الرابط وإعادة الفحص</button>
-
-      ${waPoll.lastError ? `<div class="auth-error">تعذّر الوصول للسيرفر: ${waPoll.lastError}. تأكد إنه شغّال (node server.js).</div>` : ''}
-
-      ${waPoll.ready ? `
-        <div style="text-align:center;padding:20px;">
-          <div style="font-size:40px;margin-bottom:8px;">✅</div>
-          <div style="font-weight:800;color:var(--success);font-size:16px;">واتساب متصل ويعمل</div>
-          <p style="color:var(--text-muted);font-size:13px;margin-top:6px;">كل إشعار بيصير بالنظام رح ينبعث تلقائيًا كرسالة واتساب حقيقية.</p>
-        </div>
-      ` : waPoll.qr ? `
-        <div style="text-align:center;">
-          <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">افتح واتساب على جوال الشركة ← الأجهزة المرتبطة ← ربط جهاز، وامسح الكود:</p>
-          <img src="${waPoll.qr}" style="width:220px;height:220px;border-radius:12px;border:1px solid var(--border);"/>
-        </div>
-      ` : `
-        <div class="empty">${waPoll.checking?'جارِ الاتصال بسيرفر واتساب...':'شغّل سيرفر الواتساب على جهازك أولًا (راجع ملف التعليمات)، وسيظهر هنا كود QR تلقائيًا.'}</div>
-      `}
     </div>
     <div class="card">
       <div class="section-title">أرقام الموظفين</div>
       ${missingPhone>0?`<div class="auth-error">${missingPhone} موظف بدون رقم واتساب مسجّل — عدّل بياناته من تبويب "الموظفون".</div>`:''}
       ${employees.map(e=>`<div class="assignee-row"><span>${e.name}</span><span dir="ltr" style="color:var(--text-muted)">${e.phone||'لا يوجد رقم'}</span></div>`).join('') || `<div class="empty">لا يوجد موظفون بعد</div>`}
-      <button class="btn btn-primary btn-sm" id="waTestBtn" style="width:100%;margin-top:14px;" ${waPoll.ready?'':'disabled'}>إرسال رسالة تجربة لأول موظف</button>
+      <div class="field" style="margin-top:14px;"><label>رقم لتجربة الإرسال (مع كود الدولة)</label><input id="waTestPhone" dir="ltr" placeholder="970591234567"/></div>
+      <button class="btn btn-primary btn-sm" id="waTestBtn" style="width:100%;" ${isConnected?'':'disabled'}>إرسال رسالة تجربة</button>
+      ${!isConnected?`<p style="font-size:11.5px;color:var(--text-faint);margin-top:8px;">فعّل الإعدادات من اليسار أولًا.</p>`:''}
     </div>
   </div>`;
 }
 
 function whatsappBanner(){
   return `<div class="whatsapp-banner">
-    📱 <div><b>ملاحظة حول الواتساب:</b> هذا النموذج يعرض الإشعارات داخل النظام (جاهزة للربط). لتفعيل الإرسال الفعلي على واتساب، نحتاج لربط WhatsApp Business API في مرحلة التشغيل الحقيقي — وقتها كل إشعار هنا رح ينبعث تلقائيًا كرسالة واتساب حقيقية.</div>
+    📱 <div><b>ملاحظة حول الواتساب:</b> الإشعارات هون بتنبعث حاليًا كرسائل واتساب حقيقية عبر Meta Cloud API الرسمي (لو الإعدادات مفعّلة من تبويب "ربط واتساب"). القالب الافتراضي "hello_world" للتجربة فقط — لإشعارات حقيقية بنص مخصص، لازم تنشئ وتعتمد قالب خاص من لوحة Meta وتحطّه بإعدادات واتساب.</div>
   </div>`;
 }
 
@@ -913,20 +880,21 @@ function attachAppEvents(){
   document.getElementById('checkInBtn')?.addEventListener('click', checkIn);
   document.getElementById('checkOutBtn')?.addEventListener('click', checkOut);
 
-  document.getElementById('waSaveUrl')?.addEventListener('click', async ()=>{
-    const val = document.getElementById('waUrlInput').value.trim().replace(/\/$/,'');
-    await apiPost('updateWhatsappUrl', { url: val || 'http://localhost:3001' });
-    state.settings.whatsappServerUrl = val || 'http://localhost:3001';
-    checkWaStatus();
-    showToast('تم حفظ الرابط، جارِ الفحص...');
+  document.getElementById('waForm')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const f = e.target;
+    const res = await apiPost('updateWhatsappUrl', { phoneId: f.phoneId.value.trim(), token: f.token.value.trim(), template: f.template.value.trim() });
+    if(res.error){ showToast(res.error); return; }
+    await refresh();
+    showToast('تم حفظ إعدادات واتساب');
   });
   document.getElementById('waTestBtn')?.addEventListener('click', async ()=>{
-    const emp = state.users.find(u=>u.role==='employee' && u.phone);
-    if(!emp){ showToast('لا يوجد موظف برقم واتساب مسجّل'); return; }
-    await sendWhatsAppMessage(emp.phone, '[سوبر آبل] هذه رسالة تجربة من نظام إدارة الفريق ✅');
-    showToast('تم إرسال طلب الرسالة');
+    const phone = document.getElementById('waTestPhone').value.trim();
+    if(!phone){ showToast('اكتب رقم هاتف أولًا'); return; }
+    const res = await apiPost('testWhatsapp', { phone });
+    if(res.error){ showToast(res.error); return; }
+    showToast('تم إرسال طلب الرسالة، تحقق من واتساب خلال ثوانٍ');
   });
-  if(state.currentUser && state.currentUser.role==='admin' && state.adminTab==='whatsapp' && !waPoll.checking) checkWaStatus();
 
   document.getElementById('settingsForm')?.addEventListener('submit', async (e)=>{
     e.preventDefault();

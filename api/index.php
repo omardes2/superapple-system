@@ -40,6 +40,55 @@ function requireAdmin($pdo) {
     return $u;
 }
 
+/* ============ واتساب — Meta Cloud API الرسمي ============ */
+function sendWhatsAppCloud($pdo, $phone, $bodyText) {
+    if (empty($phone)) return;
+    if (!function_exists('curl_init')) return; // امتداد curl غير مفعّل على هذه الاستضافة
+    $s = $pdo->query("SELECT whatsapp_phone_id, whatsapp_token, whatsapp_template FROM settings WHERE id = 1")->fetch();
+    if (empty($s['whatsapp_phone_id']) || empty($s['whatsapp_token'])) return; // غير مفعّل بعد
+
+    $template = $s['whatsapp_template'] ?: 'hello_world';
+    $isHelloWorld = ($template === 'hello_world');
+
+    $payload = [
+        'messaging_product' => 'whatsapp',
+        'to' => preg_replace('/\D/', '', $phone),
+        'type' => 'template',
+        'template' => [
+            'name' => $template,
+            'language' => ['code' => $isHelloWorld ? 'en_US' : 'ar'],
+        ],
+    ];
+    if (!$isHelloWorld) {
+        $payload['template']['components'] = [[
+            'type' => 'body',
+            'parameters' => [['type' => 'text', 'text' => $bodyText]],
+        ]];
+    }
+
+    $ch = curl_init("https://graph.facebook.com/v20.0/{$s['whatsapp_phone_id']}/messages");
+    if ($ch === false) return; // curl غير متاح على هذه الاستضافة
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode($payload),
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $s['whatsapp_token']],
+        CURLOPT_TIMEOUT => 8,
+        CURLOPT_SSL_VERIFYPEER => true,
+    ]);
+    @curl_exec($ch);
+    curl_close($ch);
+}
+
+// يسجّل إشعارًا داخل النظام + يبعت رسالة واتساب حقيقية بنفس الوقت
+function pushNotification($pdo, $userId, $message, $type) {
+    $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, ?)")->execute([$userId, $message, $type]);
+    $stmt = $pdo->prepare("SELECT phone FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $u = $stmt->fetch();
+    if ($u && $u['phone']) sendWhatsAppCloud($pdo, $u['phone'], $message);
+}
+
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -52,7 +101,8 @@ switch ($action) {
         $settingsRow = $pdo->query("SELECT work_start AS workStart, grace_minutes AS graceMinutes,
             points_on_time AS pointsOnTime, points_early_bonus AS pointsEarlyBonus, early_bonus_hours AS earlyBonusHours,
             points_attendance AS pointsAttendance, penalty_late AS penaltyLate, penalty_absent AS penaltyAbsent,
-            whatsapp_server_url AS whatsappServerUrl FROM settings WHERE id = 1")->fetch();
+            whatsapp_phone_id AS whatsappPhoneId, whatsapp_token AS whatsappToken, whatsapp_template AS whatsappTemplate
+            FROM settings WHERE id = 1")->fetch();
 
         $payload = ['hasUsers' => $hasUsers, 'currentUser' => $currentUser, 'settings' => $settingsRow ?: null];
 
@@ -149,8 +199,7 @@ switch ($action) {
             respond(['error' => 'البريد الإلكتروني مستخدم مسبقًا'], 400);
         }
         $newId = $pdo->lastInsertId();
-        $stmt = $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'welcome')");
-        $stmt->execute([$newId, "مرحبًا " . trim($b['name']) . "! تم إنشاء حسابك في نظام سوبر آبل."]);
+        pushNotification($pdo, $newId, "مرحبًا " . trim($b['name']) . "! تم إنشاء حسابك في نظام سوبر آبل.", 'welcome');
         respond(['success' => true]);
     }
 
@@ -171,11 +220,10 @@ switch ($action) {
         $stmt->execute([trim($b['title']), trim($b['description'] ?? ''), $b['priority'] ?: 'medium', $b['deadline'] ?: null, $admin['id']]);
         $taskId = $pdo->lastInsertId();
         $insA = $pdo->prepare("INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)");
-        $insN = $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'task')");
         $deadlineTxt = $b['deadline'] ? date('d/m', strtotime($b['deadline'])) : 'غير محدد';
         foreach ($b['assignees'] as $uid) {
             $insA->execute([$taskId, $uid]);
-            $insN->execute([$uid, "مهمة جديدة: \"" . trim($b['title']) . "\" — الموعد النهائي {$deadlineTxt}."]);
+            pushNotification($pdo, $uid, "مهمة جديدة: \"" . trim($b['title']) . "\" — الموعد النهائي {$deadlineTxt}.", 'task');
         }
         respond(['success' => true]);
     }
@@ -209,9 +257,9 @@ switch ($action) {
                     if ($hoursEarly >= (int) $s['early_bonus_hours']) $pts += (int) $s['points_early_bonus'];
                 }
                 $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, ?)")->execute([$userId, $pts, "إنجاز مهمة: {$task['title']}"]);
-                $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'points')")->execute([$userId, "أحسنت! أنجزت \"{$task['title']}\" وحصلت على {$pts} نقطة."]);
+                pushNotification($pdo, $userId, "أحسنت! أنجزت \"{$task['title']}\" وحصلت على {$pts} نقطة.", 'points');
             } else {
-                $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'task')")->execute([$userId, "أنجزت \"{$task['title']}\" بعد الموعد النهائي."]);
+                pushNotification($pdo, $userId, "أنجزت \"{$task['title']}\" بعد الموعد النهائي.", 'task');
             }
         }
         respond(['success' => true]);
@@ -236,10 +284,10 @@ switch ($action) {
 
         if ($isLate) {
             $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'تأخير عن موعد الدوام')")->execute([$user['id'], -(int) $s['penalty_late']]);
-            $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'late')")->execute([$user['id'], "تم تسجيل حضورك الساعة {$time} (متأخر). تم خصم {$s['penalty_late']} نقطة."]);
+            pushNotification($pdo, $user['id'], "تم تسجيل حضورك الساعة {$time} (متأخر). تم خصم {$s['penalty_late']} نقطة.", 'late');
         } else {
             $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'حضور في الوقت المحدد')")->execute([$user['id'], (int) $s['points_attendance']]);
-            $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'checkin')")->execute([$user['id'], "تم تسجيل حضورك الساعة {$time}. +{$s['points_attendance']} نقطة."]);
+            pushNotification($pdo, $user['id'], "تم تسجيل حضورك الساعة {$time}. +{$s['points_attendance']} نقطة.", 'checkin');
         }
         respond(['success' => true]);
     }
@@ -253,7 +301,7 @@ switch ($action) {
         if (!$rec || $rec['check_out']) respond(['error' => 'لا يوجد تسجيل حضور مفتوح']);
         $time = date('H:i:s');
         $pdo->prepare("UPDATE attendance SET check_out = ? WHERE id = ?")->execute([$time, $rec['id']]);
-        $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'checkout')")->execute([$user['id'], "تم تسجيل انصرافك الساعة {$time}. يوم موفق!"]);
+        pushNotification($pdo, $user['id'], "تم تسجيل انصرافك الساعة {$time}. يوم موفق!", 'checkout');
         respond(['success' => true]);
     }
 
@@ -268,7 +316,7 @@ switch ($action) {
         $pdo->prepare("INSERT INTO attendance (user_id, date, status) VALUES (?, ?, 'absent')")->execute([$userId, $date]);
         $s = $pdo->query("SELECT penalty_absent FROM settings WHERE id = 1")->fetch();
         $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, 'غياب بدون تسجيل حضور')")->execute([$userId, -(int) $s['penalty_absent']]);
-        $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, 'absent')")->execute([$userId, "تم تسجيلك غائبًا بتاريخ {$date}. تم خصم {$s['penalty_absent']} نقطة."]);
+        pushNotification($pdo, $userId, "تم تسجيلك غائبًا بتاريخ {$date}. تم خصم {$s['penalty_absent']} نقطة.", 'absent');
         respond(['success' => true]);
     }
 
@@ -288,7 +336,17 @@ switch ($action) {
     case 'updateWhatsappUrl': {
         requireAdmin($pdo);
         $b = bodyInput();
-        $pdo->prepare("UPDATE settings SET whatsapp_server_url = ? WHERE id = 1")->execute([trim($b['url'] ?? '')]);
+        $pdo->prepare("UPDATE settings SET whatsapp_phone_id = ?, whatsapp_token = ?, whatsapp_template = ? WHERE id = 1")
+            ->execute([trim($b['phoneId'] ?? ''), trim($b['token'] ?? ''), trim($b['template'] ?? '') ?: 'hello_world']);
+        respond(['success' => true]);
+    }
+
+    case 'testWhatsapp': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $phone = trim($b['phone'] ?? '');
+        if (!$phone) respond(['error' => 'رقم الهاتف مطلوب'], 400);
+        sendWhatsAppCloud($pdo, $phone, 'هذه رسالة تجربة من نظام سوبر آبل ✅');
         respond(['success' => true]);
     }
 
