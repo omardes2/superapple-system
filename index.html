@@ -197,10 +197,10 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [],
+  clients: [], departments: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard',
-  taskModal: false, empModal: false, clientModal: false, scheduleModal: null, checkingIn: false, toast: null
+  taskModal: false, empModal: false, clientModal: false, departmentModal: false, scheduleModal: null, checkingIn: false, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
 
@@ -239,6 +239,7 @@ function applyBootstrap(data){
   state.settings = data.settings || DEFAULT_SETTINGS;
   state.users = data.users || [];
   state.clients = data.clients || [];
+  state.departments = data.departments || [];
   state.tasks = (data.tasks || []).map(t => ({ ...t, assignees: (t.assignees||[]).map(a => ({ ...a, done: !!a.done })) }));
   state.attendance = data.attendance || [];
   state.points = (data.points || []).map(p => ({ ...p, points: Number(p.points) }));
@@ -332,6 +333,22 @@ async function handleRemoveClient(id){
   await apiPost('removeClient', { id });
   await refresh();
   showToast('تم حذف العميل');
+}
+
+/* ---------------- DEPARTMENTS (admin) ---------------- */
+async function handleAddDepartment(e){
+  e.preventDefault();
+  const f = e.target;
+  const res = await apiPost('addDepartment', { name: f.name.value.trim() });
+  if(res.error){ showToast(res.error); return; }
+  state.departmentModal = false;
+  await refresh();
+  showToast('تمت إضافة القسم');
+}
+async function handleRemoveDepartment(id){
+  await apiPost('removeDepartment', { id });
+  await refresh();
+  showToast('تم حذف القسم');
 }
 
 
@@ -489,6 +506,7 @@ const ICONS = {
   clients: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12a3 3 0 100-6 3 3 0 000 6z"/><path d="M2 20c0-3 2.5-5 6-5s6 2 6 5"/><path d="M16 7a3 3 0 013 3"/><path d="M14 20c.3-2 1.8-3.5 4-3.8"/></svg>`,
   projects: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>`,
   employees: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.5 2.9-6 6.5-6s6.5 2.5 6.5 6"/><path d="M16.5 6.5a3 3 0 010 6"/><path d="M21.5 20c-.2-2.8-1.9-5-4.5-5.7"/></svg>`,
+  departments: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`,
   attendance: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`,
   rewards: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v5a4 4 0 01-8 0V4z"/><path d="M8 6H5a2 2 0 002 4M16 6h3a2 2 0 01-2 4"/><path d="M12 13v3"/><path d="M9 20h6M10 16.5h4v3.5h-4z"/></svg>`,
   reports: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M9 13v4M12 11v6M15 15v2"/></svg>`,
@@ -525,6 +543,7 @@ function renderAdmin(){
     {key:'dashboard', icon:'dashboard', label:'نظرة عامة'},
     {key:'tasks', icon:'tasks', label:'المهام'},
     {key:'clients', icon:'clients', label:'العملاء'},
+    {key:'departments', icon:'departments', label:'الأقسام'},
     {key:'employees', icon:'employees', label:'الموظفون'},
     {key:'attendance', icon:'attendance', label:'الدوام'},
     {key:'rewards', icon:'rewards', label:'النقاط والمكافآت'},
@@ -556,14 +575,15 @@ function renderAdmin(){
   </div>
   ${state.empModal ? employeeModal() : ''}
   ${state.clientModal ? clientModal() : ''}
+  ${state.departmentModal ? departmentModal() : ''}
   ${state.scheduleModal ? scheduleModal() : ''}
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', attendance:'مراقبة الدوام', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', whatsapp:'ربط واتساب', notifications:'سجل الإشعارات'}; }
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'مراقبة الدوام', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', whatsapp:'ربط واتساب', notifications:'سجل الإشعارات'}; }
 function adminSubs(){ return {
   dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
-  tasks:'إنشاء متابعة المهام الفردية والمشتركة', clients:'عملاء الوكالة وبيانات التواصل معهم',
+  tasks:'إنشاء متابعة المهام الفردية والمشتركة', clients:'عملاء الوكالة وبيانات التواصل معهم', departments:'أقسام الشركة وتوزيع الموظفين عليها',
   attendance:'حالة الحضور والانصراف لجميع الموظفين',
   rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي',
   whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', notifications:'كل التنبيهات المُرسلة للفريق'
@@ -575,6 +595,7 @@ function adminTabContent(){
     case 'employees': return adminEmployees();
     case 'tasks': return adminTasks();
     case 'clients': return adminClients();
+    case 'departments': return adminDepartments();
     case 'attendance': return adminAttendance();
     case 'rewards': return adminRewards();
     case 'reports': return adminReports();
@@ -735,6 +756,36 @@ function clientModal(){
   </div></div>`;
 }
 
+function adminDepartments(){
+  const depts = state.departments;
+  const countFor = name => state.users.filter(u=>u.role==='employee' && u.department===name).length;
+  return `
+  <div class="section-title">قائمة الأقسام (${depts.length}) <button class="btn btn-primary btn-sm" id="openDepartmentModal">+ إضافة قسم</button></div>
+  ${depts.length===0?`<div class="card"><div class="empty">لا توجد أقسام بعد. اضغط "إضافة قسم" للبدء.</div></div>`:`
+  <div class="grid grid-4">
+    ${depts.map(d=>`
+      <div class="card" style="text-align:center;">
+        <div class="stat-icon" style="background:var(--primary-tint);color:var(--primary);margin:0 auto 10px;">${ICONS.departments}</div>
+        <div style="font-weight:800;font-size:13.5px;">${d.name}</div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">${countFor(d.name)} موظف</div>
+        <button class="btn btn-danger btn-sm" style="margin-top:10px;width:100%;" data-remove-department="${d.id}">حذف</button>
+      </div>`).join('')}
+  </div>`}`;
+}
+
+function departmentModal(){
+  return `<div class="modal-bg" id="departmentModalBg"><div class="modal">
+    <h3 class="modal-title">إضافة قسم جديد</h3>
+    <form id="departmentForm">
+      <div class="field"><label>اسم القسم</label><input name="name" required placeholder="مثال: التصميم"/></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="closeDepartmentModal" style="flex:1;">إلغاء</button>
+        <button type="submit" class="btn btn-primary" style="flex:1;">إضافة</button>
+      </div>
+    </form>
+  </div></div>`;
+}
+
 function adminEmployees(){
   const employees = state.users.filter(u=>u.role==='employee');
   return `
@@ -777,7 +828,10 @@ function employeeModal(){
       <div class="field"><label>البريد الإلكتروني</label><input name="email" type="email" required/></div>
       <div class="field"><label>كلمة السر المؤقتة</label><input name="password" type="password" required minlength="4"/></div>
       <div class="form-row">
-        <div class="field"><label>القسم</label><input name="department" placeholder="مثال: المحتوى"/></div>
+        <div class="field"><label>القسم</label>
+          <input name="department" list="departmentsDatalist" placeholder="اختر أو اكتب قسمًا جديدًا" autocomplete="off"/>
+          <datalist id="departmentsDatalist">${(state.departments||[]).map(d=>`<option value="${d.name}"></option>`).join('')}</datalist>
+        </div>
         <div class="field"><label>رقم الواتساب</label><input name="phone" required placeholder="970591234567"/></div>
       </div>
       <div class="form-row">
@@ -1189,6 +1243,14 @@ function attachAppEvents(){
   document.getElementById('clientForm')?.addEventListener('submit', handleAddClient);
   document.querySelectorAll('[data-remove-client]').forEach(el=>{
     el.addEventListener('click', ()=> handleRemoveClient(el.getAttribute('data-remove-client')));
+  });
+
+  document.getElementById('openDepartmentModal')?.addEventListener('click', ()=>{ state.departmentModal=true; render(); });
+  document.getElementById('closeDepartmentModal')?.addEventListener('click', ()=>{ state.departmentModal=false; render(); });
+  document.getElementById('departmentModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='departmentModalBg'){ state.departmentModal=false; render(); }});
+  document.getElementById('departmentForm')?.addEventListener('submit', handleAddDepartment);
+  document.querySelectorAll('[data-remove-department]').forEach(el=>{
+    el.addEventListener('click', ()=> handleRemoveDepartment(el.getAttribute('data-remove-department')));
   });
 
   document.getElementById('openTaskModal')?.addEventListener('click', openTaskModal);

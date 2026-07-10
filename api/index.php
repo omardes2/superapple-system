@@ -113,6 +113,7 @@ switch ($action) {
 
             if ($isAdmin) {
                 $payload['clients'] = $pdo->query("SELECT id, name, contact_name AS contactName, phone, email, notes, created_at AS createdAt FROM clients ORDER BY name")->fetchAll();
+                $payload['departments'] = $pdo->query("SELECT id, name FROM departments ORDER BY name")->fetchAll();
             }
 
             $tasks = $pdo->query("SELECT id, title, description, priority, deadline, client_id AS clientId, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
@@ -192,12 +193,19 @@ switch ($action) {
         if (empty($b['name']) || empty($b['email']) || empty($b['password']) || empty($b['phone'])) {
             respond(['error' => 'كل الحقول مطلوبة (بما فيها رقم الواتساب)'], 400);
         }
+        $deptName = trim($b['department']) ?: 'عام';
+        $stmt = $pdo->prepare("SELECT id FROM departments WHERE LOWER(name) = LOWER(?) LIMIT 1");
+        $stmt->execute([$deptName]);
+        if (!$stmt->fetch()) {
+            $pdo->prepare("INSERT IGNORE INTO departments (name) VALUES (?)")->execute([$deptName]);
+        }
+
         $hash = password_hash($b['password'], PASSWORD_BCRYPT);
         try {
             $stmt = $pdo->prepare("INSERT INTO users (name, email, password_hash, role, department, phone, work_start, work_end, join_date) VALUES (?, ?, ?, 'employee', ?, ?, ?, ?, CURDATE())");
             $stmt->execute([
                 trim($b['name']), strtolower(trim($b['email'])), $hash,
-                trim($b['department']) ?: 'عام', trim($b['phone']), $b['workStart'] ?: '08:00', $b['workEnd'] ?: '16:00'
+                $deptName, trim($b['phone']), $b['workStart'] ?: '08:00', $b['workEnd'] ?: '16:00'
             ]);
         } catch (PDOException $e) {
             respond(['error' => 'البريد الإلكتروني مستخدم مسبقًا'], 400);
@@ -385,6 +393,26 @@ switch ($action) {
         $phone = trim($b['phone'] ?? '');
         if (!$phone) respond(['error' => 'رقم الهاتف مطلوب'], 400);
         sendWhatsAppCloud($pdo, $phone, 'هذه رسالة تجربة من نظام سوبر آبل ✅');
+        respond(['success' => true]);
+    }
+
+    /* ============ الأقسام ============ */
+    case 'addDepartment': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        if (empty($b['name'])) respond(['error' => 'اسم القسم مطلوب'], 400);
+        try {
+            $pdo->prepare("INSERT INTO departments (name) VALUES (?)")->execute([trim($b['name'])]);
+        } catch (PDOException $e) {
+            respond(['error' => 'هذا القسم موجود مسبقًا'], 400);
+        }
+        respond(['success' => true]);
+    }
+
+    case 'removeDepartment': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("DELETE FROM departments WHERE id = ?")->execute([$b['id'] ?? 0]);
         respond(['success' => true]);
     }
 
