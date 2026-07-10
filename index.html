@@ -129,6 +129,10 @@
   .activity-time{font-size:11px;color:var(--text-faint);margin-top:2px;}
 
   .section-title{font-size:13.5px;font-weight:800;margin-bottom:11px;display:flex;align-items:center;justify-content:space-between;}
+  .subtab-nav{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;}
+  .subtab-btn{padding:8px 16px;border-radius:100px;font-size:12.5px;font-weight:700;background:var(--surface);border:1.5px solid var(--border);color:var(--text-muted);}
+  .subtab-btn:hover{border-color:var(--accent);color:var(--text);}
+  .subtab-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);}
 
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
   th{text-align:right;color:var(--text-muted);font-weight:700;font-size:11px;padding:7px 9px;border-bottom:1.5px solid var(--border);}
@@ -199,7 +203,7 @@ let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
   clients: [], leaveRequests: [], departments: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
-  adminTab: 'dashboard', empTab: 'dashboard',
+  adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview',
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
@@ -980,6 +984,61 @@ function adminRewards(){
 }
 
 function adminReports(){
+  const tab = state.reportsTab || 'overview';
+  const tabs = [
+    {key:'overview', label:'نظرة عامة'},
+    {key:'employees', label:'الموظفون'},
+    {key:'tasks', label:'المهام'},
+    {key:'points', label:'النقاط'},
+    {key:'clients', label:'العملاء'},
+  ];
+  return `
+  <div class="subtab-nav">
+    ${tabs.map(t=>`<button class="subtab-btn ${tab===t.key?'active':''}" data-reports-tab="${t.key}">${t.label}</button>`).join('')}
+  </div>
+  ${tab==='overview'?reportsOverview():''}
+  ${tab==='employees'?reportsEmployees():''}
+  ${tab==='tasks'?reportsTasks():''}
+  ${tab==='points'?reportsPoints():''}
+  ${tab==='clients'?reportsClients():''}
+  `;
+}
+
+function reportsOverview(){
+  const employees = state.users.filter(u=>u.role==='employee');
+  const {start,end} = monthRange();
+  const doneTasks = state.tasks.filter(t=>taskStatus(t)==='done');
+  const lateTasks = state.tasks.filter(t=>taskStatus(t)==='late');
+  const completionRate = state.tasks.length ? Math.round((doneTasks.length/state.tasks.length)*100) : 0;
+  const monthPoints = state.points.filter(p=>new Date(p.date)>=start && new Date(p.date)<=end);
+  const pointsIssued = monthPoints.filter(p=>p.points>0).reduce((s,p)=>s+p.points,0);
+  const pointsDeducted = monthPoints.filter(p=>p.points<0).reduce((s,p)=>s+p.points,0);
+  const totalHours = employees.reduce((s,e)=>s+monthlyReport(e.id).totalHours,0);
+  const requiredHours = employees.reduce((s,e)=>s+monthlyReport(e.id).requiredHours,0);
+  return `
+  <div class="grid grid-4" style="margin-bottom:16px;">
+    <div class="card stat-card"><div class="stat-label">عدد الموظفين</div><div class="stat-value">${employees.length}</div></div>
+    <div class="card stat-card"><div class="stat-label">معدل إنجاز المهام</div><div class="stat-value" style="color:var(--success)">${completionRate}%</div></div>
+    <div class="card stat-card"><div class="stat-label">مهام متأخرة حاليًا</div><div class="stat-value" style="color:var(--danger)">${lateTasks.length}</div></div>
+    <div class="card stat-card"><div class="stat-label">ساعات العمل هذا الشهر</div><div class="stat-value" style="color:${totalHours>=requiredHours?'var(--success)':'var(--warning)'}">${Math.round(totalHours)}<span style="font-size:13px;color:var(--text-faint);">/${Math.round(requiredHours)}س</span></div></div>
+  </div>
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="section-title">نقاط الشهر</div>
+      <div class="assignee-row"><span>نقاط مكتسبة</span><b style="color:var(--success)">+${pointsIssued}</b></div>
+      <div class="assignee-row"><span>نقاط مخصومة</span><b style="color:var(--danger)">${pointsDeducted}</b></div>
+      <div class="assignee-row"><span>الصافي</span><b style="color:var(--primary)">${pointsIssued+pointsDeducted}</b></div>
+    </div>
+    <div class="card">
+      <div class="section-title">حالة المهام</div>
+      <div class="assignee-row"><span>مكتملة</span><span class="badge badge-success">${doneTasks.length}</span></div>
+      <div class="assignee-row"><span>قيد التنفيذ</span><span class="badge badge-primary">${state.tasks.filter(t=>taskStatus(t)==='progress').length}</span></div>
+      <div class="assignee-row"><span>متأخرة</span><span class="badge badge-danger">${lateTasks.length}</span></div>
+    </div>
+  </div>`;
+}
+
+function reportsEmployees(){
   const employees = state.users.filter(u=>u.role==='employee');
   return `
   <div class="card">
@@ -992,6 +1051,71 @@ function adminReports(){
         <td style="color:${shortfall?'var(--warning)':'var(--success)'};font-weight:700;">${r.totalHours}س</td>
         <td style="color:var(--text-faint);">${r.requiredHours}س</td>
         <td>${r.completed}/${r.totalTasks}</td><td><span class="badge badge-primary">${r.points}</span></td></tr>`;
+    }).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+function reportsTasks(){
+  const byStatus = { done: state.tasks.filter(t=>taskStatus(t)==='done'), progress: state.tasks.filter(t=>taskStatus(t)==='progress'), late: state.tasks.filter(t=>taskStatus(t)==='late') };
+  const byPriority = { high: state.tasks.filter(t=>t.priority==='high').length, medium: state.tasks.filter(t=>t.priority==='medium').length, low: state.tasks.filter(t=>t.priority==='low').length };
+  return `
+  <div class="grid grid-2" style="margin-bottom:16px;">
+    <div class="card">
+      <div class="section-title">توزيع الأولويات</div>
+      <div class="assignee-row"><span>عالية</span><span class="badge badge-danger">${byPriority.high}</span></div>
+      <div class="assignee-row"><span>متوسطة</span><span class="badge badge-warning">${byPriority.medium}</span></div>
+      <div class="assignee-row"><span>منخفضة</span><span class="badge badge-muted">${byPriority.low}</span></div>
+    </div>
+    <div class="card">
+      <div class="section-title">توزيع الحالات</div>
+      <div class="assignee-row"><span>مكتملة</span><span class="badge badge-success">${byStatus.done.length}</span></div>
+      <div class="assignee-row"><span>قيد التنفيذ</span><span class="badge badge-primary">${byStatus.progress.length}</span></div>
+      <div class="assignee-row"><span>متأخرة</span><span class="badge badge-danger">${byStatus.late.length}</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="section-title">المهام المتأخرة حاليًا</div>
+    ${byStatus.late.length===0?`<div class="empty">لا توجد مهام متأخرة 🎉</div>`:`
+    <table><thead><tr><th>المهمة</th><th>الموظفون</th><th>الموعد</th></tr></thead><tbody>
+    ${byStatus.late.map(t=>`<tr><td>${t.title}</td><td>${t.assignees.map(a=>state.users.find(u=>u.id===a.userId)?.name).join('، ')}</td><td style="color:var(--danger)">${fmtDate(t.deadline)}</td></tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+function reportsPoints(){
+  const {start,end} = monthRange();
+  const monthPoints = state.points.filter(p=>new Date(p.date)>=start && new Date(p.date)<=end).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  return `
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="section-title">🏆 لوحة الصدارة</div>
+      ${leaderboard().map((t,i)=>`
+        <div class="assignee-row"><span>${i+1}. ${t.u.name}</span><b style="color:var(--primary)">${t.pts}</b></div>`).join('') || `<div class="empty">لا يوجد بعد</div>`}
+    </div>
+    <div class="card">
+      <div class="section-title">سجل نقاط الشهر</div>
+      <div style="max-height:400px;overflow-y:auto;">
+      ${monthPoints.length===0?`<div class="empty">لا يوجد سجل بعد</div>`:monthPoints.map(p=>{
+        const u = state.users.find(u=>u.id===p.userId);
+        return `<div class="assignee-row"><span>${u?u.name:''} — ${p.reason}</span><b style="color:${p.points>=0?'var(--success)':'var(--danger)'}">${p.points>0?'+':''}${p.points}</b></div>`;
+      }).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function reportsClients(){
+  const clients = state.clients||[];
+  return `
+  <div class="card">
+    <div class="section-title">المهام حسب الشركة/العميل</div>
+    ${clients.length===0?`<div class="empty">لا يوجد عملاء بعد</div>`:`
+    <table><thead><tr><th>الشركة</th><th>إجمالي المهام</th><th>مكتملة</th><th>قيد التنفيذ</th></tr></thead><tbody>
+    ${clients.map(c=>{
+      const tasks = state.tasks.filter(t=>t.clientId==c.id);
+      const done = tasks.filter(t=>taskStatus(t)==='done').length;
+      return `<tr><td>${c.name}</td><td>${tasks.length}</td><td><span class="badge badge-success">${done}</span></td><td><span class="badge badge-primary">${tasks.length-done}</span></td></tr>`;
     }).join('')}
     </tbody></table>`}
   </div>`;
@@ -1316,6 +1440,9 @@ function attachAppEvents(){
   document.getElementById('departmentForm')?.addEventListener('submit', handleAddDepartment);
   document.querySelectorAll('[data-remove-department]').forEach(el=>{
     el.addEventListener('click', ()=> handleRemoveDepartment(el.getAttribute('data-remove-department')));
+  });
+  document.querySelectorAll('[data-reports-tab]').forEach(el=>{
+    el.addEventListener('click', ()=>{ state.reportsTab = el.getAttribute('data-reports-tab'); render(); });
   });
 
   document.getElementById('openTaskModal')?.addEventListener('click', openTaskModal);
