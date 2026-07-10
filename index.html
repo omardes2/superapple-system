@@ -183,9 +183,10 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
+  clients: [], projects: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard',
-  taskModal: false, empModal: false, toast: null
+  taskModal: false, empModal: false, clientModal: false, projectModal: false, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
 
@@ -223,6 +224,8 @@ function applyBootstrap(data){
   state.currentUser = data.currentUser || null;
   state.settings = data.settings || DEFAULT_SETTINGS;
   state.users = data.users || [];
+  state.clients = data.clients || [];
+  state.projects = data.projects || [];
   state.tasks = (data.tasks || []).map(t => ({ ...t, assignees: (t.assignees||[]).map(a => ({ ...a, done: !!a.done })) }));
   state.attendance = data.attendance || [];
   state.points = (data.points || []).map(p => ({ ...p, points: Number(p.points) }));
@@ -289,6 +292,48 @@ async function handleRemoveEmployee(id){
   showToast('تم حذف الموظف');
 }
 
+/* ---------------- CLIENTS (admin) ---------------- */
+async function handleAddClient(e){
+  e.preventDefault();
+  const f = e.target;
+  const res = await apiPost('addClient', {
+    name: f.name.value.trim(), contactName: f.contactName.value.trim(),
+    phone: f.phone.value.trim(), email: f.email.value.trim(), notes: f.notes.value.trim()
+  });
+  if(res.error){ showToast(res.error); return; }
+  state.clientModal = false;
+  await refresh();
+  showToast('تمت إضافة العميل');
+}
+async function handleRemoveClient(id){
+  await apiPost('removeClient', { id });
+  await refresh();
+  showToast('تم حذف العميل');
+}
+
+/* ---------------- PROJECTS (admin) ---------------- */
+async function handleAddProject(e){
+  e.preventDefault();
+  const f = e.target;
+  const res = await apiPost('addProject', {
+    name: f.name.value.trim(), clientId: f.clientId.value || null, description: f.description.value.trim()
+  });
+  if(res.error){ showToast(res.error); return; }
+  state.projectModal = false;
+  await refresh();
+  showToast('تم إنشاء المشروع');
+}
+async function handleRemoveProject(id){
+  await apiPost('removeProject', { id });
+  await refresh();
+  showToast('تم حذف المشروع');
+}
+async function handleUpdateProjectStatus(id, status){
+  await apiPost('updateProjectStatus', { id, status });
+  await refresh();
+  showToast('تم تحديث حالة المشروع');
+}
+
 /* ---------------- ATTENDANCE ---------------- */
 function todayRecord(userId){
   return state.attendance.find(a=>a.userId===userId && a.date===todayStr());
@@ -322,7 +367,8 @@ async function handleCreateTask(e){
   if(selectedAssignees.length===0){ showToast('اختر موظف واحد على الأقل'); return; }
   const res = await apiPost('createTask', {
     title: f.title.value.trim(), description: f.description.value.trim(),
-    priority: f.priority.value, deadline: f.deadline.value, assignees: selectedAssignees
+    priority: f.priority.value, deadline: f.deadline.value, assignees: selectedAssignees,
+    projectId: f.projectId.value || null
   });
   if(res.error){ showToast(res.error); return; }
   state.taskModal = false;
@@ -441,8 +487,10 @@ function notifBell(){
 function renderAdmin(){
   const nav = [
     {key:'dashboard', icon:'📊', label:'نظرة عامة'},
-    {key:'employees', icon:'👥', label:'الموظفون'},
     {key:'tasks', icon:'🗂️', label:'المهام'},
+    {key:'clients', icon:'🤝', label:'العملاء'},
+    {key:'projects', icon:'📁', label:'المشاريع'},
+    {key:'employees', icon:'👥', label:'الموظفون'},
     {key:'attendance', icon:'⏱️', label:'الدوام'},
     {key:'rewards', icon:'🏆', label:'النقاط والمكافآت'},
     {key:'reports', icon:'📈', label:'التقارير'},
@@ -473,13 +521,16 @@ function renderAdmin(){
   </div>
   ${state.empModal ? employeeModal() : ''}
   ${state.taskModal ? taskModal() : ''}
+  ${state.clientModal ? clientModal() : ''}
+  ${state.projectModal ? projectModal() : ''}
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', attendance:'مراقبة الدوام', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', whatsapp:'ربط واتساب', notifications:'سجل الإشعارات'}; }
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', projects:'المشاريع', attendance:'مراقبة الدوام', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', whatsapp:'ربط واتساب', notifications:'سجل الإشعارات'}; }
 function adminSubs(){ return {
   dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
-  tasks:'إنشاء متابعة المهام الفردية والمشتركة', attendance:'حالة الحضور والانصراف لجميع الموظفين',
+  tasks:'إنشاء متابعة المهام الفردية والمشتركة', clients:'عملاء الوكالة وبيانات التواصل معهم', projects:'مشاريع العملاء وحالتها',
+  attendance:'حالة الحضور والانصراف لجميع الموظفين',
   rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي',
   whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', notifications:'كل التنبيهات المُرسلة للفريق'
 }; }
@@ -489,6 +540,8 @@ function adminTabContent(){
     case 'dashboard': return adminDashboard();
     case 'employees': return adminEmployees();
     case 'tasks': return adminTasks();
+    case 'clients': return adminClients();
+    case 'projects': return adminProjects();
     case 'attendance': return adminAttendance();
     case 'rewards': return adminRewards();
     case 'reports': return adminReports();
@@ -613,6 +666,87 @@ function kanbanColumn(title, tasks, bg, fg){
   </div>`;
 }
 
+function adminClients(){
+  const clients = state.clients;
+  return `
+  <div class="section-title">قائمة العملاء (${clients.length}) <button class="btn btn-primary btn-sm" id="openClientModal">+ إضافة عميل</button></div>
+  ${clients.length===0?`<div class="card"><div class="empty">لا يوجد عملاء بعد. اضغط "إضافة عميل" للبدء.</div></div>`:`
+  <div class="grid grid-4">
+    ${clients.map(c=>`
+      <div class="card" style="text-align:center;">
+        <div class="avatar" style="width:52px;height:52px;font-size:19px;margin:0 auto 10px;">${c.name[0]}</div>
+        <div style="font-weight:800;font-size:13.5px;">${c.name}</div>
+        ${c.contactName?`<div style="font-size:11.5px;color:var(--text-muted);margin-top:3px;">${c.contactName}</div>`:''}
+        ${c.phone?`<div style="font-size:11px;color:var(--text-faint);margin-top:4px;" dir="ltr">${c.phone}</div>`:''}
+        <button class="btn btn-danger btn-sm" style="margin-top:10px;width:100%;" data-remove-client="${c.id}">حذف</button>
+      </div>`).join('')}
+  </div>`}`;
+}
+
+function clientModal(){
+  return `<div class="modal-bg" id="clientModalBg"><div class="modal">
+    <h3 class="modal-title">إضافة عميل جديد</h3>
+    <form id="clientForm">
+      <div class="field"><label>اسم العميل / الشركة</label><input name="name" required/></div>
+      <div class="field"><label>اسم الشخص المسؤول</label><input name="contactName"/></div>
+      <div class="form-row">
+        <div class="field"><label>رقم الهاتف</label><input name="phone" dir="ltr"/></div>
+        <div class="field"><label>البريد الإلكتروني</label><input name="email" type="email" dir="ltr"/></div>
+      </div>
+      <div class="field"><label>ملاحظات</label><textarea name="notes" rows="2" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;"></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="closeClientModal" style="flex:1;">إلغاء</button>
+        <button type="submit" class="btn btn-primary" style="flex:1;">إضافة</button>
+      </div>
+    </form>
+  </div></div>`;
+}
+
+function adminProjects(){
+  const projects = state.projects;
+  const clientName = id => state.clients.find(c=>c.id==id)?.name || 'بدون عميل';
+  const statusMap = {active:['نشط','badge-success'], completed:['مكتمل','badge-primary'], on_hold:['متوقف','badge-warning']};
+  return `
+  <div class="section-title">قائمة المشاريع (${projects.length}) <button class="btn btn-primary btn-sm" id="openProjectModal">+ مشروع جديد</button></div>
+  ${projects.length===0?`<div class="card"><div class="empty">لا توجد مشاريع بعد. اضغط "مشروع جديد" للبدء.</div></div>`:`
+  <div class="card">
+    <table><thead><tr><th>المشروع</th><th>العميل</th><th>الحالة</th><th>عدد المهام</th><th></th></tr></thead><tbody>
+    ${projects.map(p=>{
+      const taskCount = state.tasks.filter(t=>t.projectId==p.id).length;
+      const [label,cls] = statusMap[p.status]||statusMap.active;
+      return `<tr><td>${p.name}</td><td>${clientName(p.clientId)}</td>
+        <td><select class="badge ${cls}" style="border:none;cursor:pointer;" data-change-status="${p.id}">
+          <option value="active" ${p.status==='active'?'selected':''}>نشط</option>
+          <option value="on_hold" ${p.status==='on_hold'?'selected':''}>متوقف</option>
+          <option value="completed" ${p.status==='completed'?'selected':''}>مكتمل</option>
+        </select></td>
+        <td>${taskCount}</td>
+        <td><button class="btn btn-danger btn-sm" data-remove-project="${p.id}">حذف</button></td></tr>`;
+    }).join('')}
+    </tbody></table>
+  </div>`}`;
+}
+
+function projectModal(){
+  return `<div class="modal-bg" id="projectModalBg"><div class="modal">
+    <h3 class="modal-title">مشروع جديد</h3>
+    <form id="projectForm">
+      <div class="field"><label>اسم المشروع</label><input name="name" required/></div>
+      <div class="field"><label>العميل</label>
+        <select name="clientId" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);">
+          <option value="">بدون عميل</option>
+          ${state.clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>الوصف</label><textarea name="description" rows="2" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;"></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="closeProjectModal" style="flex:1;">إلغاء</button>
+        <button type="submit" class="btn btn-primary" style="flex:1;">إنشاء</button>
+      </div>
+    </form>
+  </div></div>`;
+}
+
 function adminEmployees(){
   const employees = state.users.filter(u=>u.role==='employee');
   return `
@@ -667,6 +801,7 @@ function taskCard(t, adminView){
     </div>
     <div class="task-meta">
       ${statusBadge(t.priority)}
+      ${t.projectId?`<span>📁 ${state.projects?.find(p=>p.id==t.projectId)?.name||''}</span>`:''}
       ${t.deadline?`<span>⏳ الموعد: ${fmtDate(t.deadline)}</span>`:''}
       <span>👥 ${t.assignees.length} موظف</span>
     </div>
@@ -808,6 +943,12 @@ function taskModal(){
       <div class="form-row">
         <div class="field"><label>الأولوية</label><select name="priority"><option value="medium">متوسطة</option><option value="high">عالية</option><option value="low">منخفضة</option></select></div>
         <div class="field"><label>الموعد النهائي</label><input name="deadline" type="date" required/></div>
+      </div>
+      <div class="field"><label>المشروع (اختياري)</label>
+        <select name="projectId" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);">
+          <option value="">بدون مشروع</option>
+          ${(state.projects||[]).map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+        </select>
       </div>
       <div class="field"><label>إسناد إلى (يمكن اختيار أكثر من موظف)</label>
         <div class="chip-select">
@@ -967,6 +1108,25 @@ function attachAppEvents(){
   document.getElementById('closeEmpModal')?.addEventListener('click', ()=>{ state.empModal=false; render(); });
   document.getElementById('empModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='empModalBg'){ state.empModal=false; render(); }});
   document.getElementById('empForm')?.addEventListener('submit', handleAddEmployee);
+
+  document.getElementById('openClientModal')?.addEventListener('click', ()=>{ state.clientModal=true; render(); });
+  document.getElementById('closeClientModal')?.addEventListener('click', ()=>{ state.clientModal=false; render(); });
+  document.getElementById('clientModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='clientModalBg'){ state.clientModal=false; render(); }});
+  document.getElementById('clientForm')?.addEventListener('submit', handleAddClient);
+  document.querySelectorAll('[data-remove-client]').forEach(el=>{
+    el.addEventListener('click', ()=> handleRemoveClient(el.getAttribute('data-remove-client')));
+  });
+
+  document.getElementById('openProjectModal')?.addEventListener('click', ()=>{ state.projectModal=true; render(); });
+  document.getElementById('closeProjectModal')?.addEventListener('click', ()=>{ state.projectModal=false; render(); });
+  document.getElementById('projectModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='projectModalBg'){ state.projectModal=false; render(); }});
+  document.getElementById('projectForm')?.addEventListener('submit', handleAddProject);
+  document.querySelectorAll('[data-remove-project]').forEach(el=>{
+    el.addEventListener('click', ()=> handleRemoveProject(el.getAttribute('data-remove-project')));
+  });
+  document.querySelectorAll('[data-change-status]').forEach(el=>{
+    el.addEventListener('change', ()=> handleUpdateProjectStatus(el.getAttribute('data-change-status'), el.value));
+  });
 
   document.getElementById('openTaskModal')?.addEventListener('click', openTaskModal);
   document.getElementById('quickCreateTaskBtn')?.addEventListener('click', openTaskModal);
