@@ -125,12 +125,12 @@ switch ($action) {
                 $payload['departments'] = $pdo->query("SELECT id, name FROM departments ORDER BY name")->fetchAll();
             }
 
-            $tasks = $pdo->query("SELECT id, title, description, priority, deadline, client_id AS clientId, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
-            $aStmt = $pdo->prepare("SELECT user_id AS userId, done, completed_at AS completedAt FROM task_assignees WHERE task_id = ?");
+            $tasks = $pdo->query("SELECT id, title, description, priority, status, category, deadline, client_id AS clientId, created_by AS createdBy, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
+            $aStmt = $pdo->prepare("SELECT user_id AS userId, accepted, accepted_at AS acceptedAt, done, completed_at AS completedAt FROM task_assignees WHERE task_id = ?");
             foreach ($tasks as &$t) {
                 $aStmt->execute([$t['id']]);
                 $rows = $aStmt->fetchAll();
-                foreach ($rows as &$r) $r['done'] = (bool) $r['done'];
+                foreach ($rows as &$r) { $r['done'] = (bool) $r['done']; $r['accepted'] = (bool) $r['accepted']; }
                 $t['assignees'] = $rows;
             }
             unset($t);
@@ -265,8 +265,8 @@ switch ($action) {
             }
         }
 
-        $stmt = $pdo->prepare("INSERT INTO tasks (title, description, priority, deadline, created_by, client_id) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([trim($b['title']), trim($b['description'] ?? ''), $b['priority'] ?: 'medium', $b['deadline'] ?: null, $admin['id'], $clientId]);
+        $stmt = $pdo->prepare("INSERT INTO tasks (title, description, priority, deadline, created_by, client_id, category) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([trim($b['title']), trim($b['description'] ?? ''), $b['priority'] ?: 'medium', $b['deadline'] ?: null, $admin['id'], $clientId, trim($b['category'] ?? '') ?: null]);
         $taskId = $pdo->lastInsertId();
         $insA = $pdo->prepare("INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)");
         $deadlineTxt = $b['deadline'] ? date('d/m', strtotime($b['deadline'])) : 'غير محدد';
@@ -277,42 +277,127 @@ switch ($action) {
         respond(['success' => true]);
     }
 
-    case 'toggleAssignee': {
+    case 'acceptTask': {
         $user = requireLogin($pdo);
         $b = bodyInput();
         $taskId = $b['taskId'] ?? 0;
-        $userId = $b['userId'] ?? 0;
+        $stmt = $pdo->prepare("SELECT accepted FROM task_assignees WHERE task_id = ? AND user_id = ?");
+        $stmt->execute([$taskId, $user['id']]);
+        $row = $stmt->fetch();
+        if (!$row) respond(['error' => 'أنت لست مسندًا لهذه المهمة'], 403);
+        if (!$row['accepted']) {
+            $pdo->prepare("UPDATE task_assignees SET accepted = 1, accepted_at = NOW() WHERE task_id = ? AND user_id = ?")->execute([$taskId, $user['id']]);
+            $pdo->prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ? AND status = 'new'")->execute([$taskId]);
+            $stmt = $pdo->prepare("SELECT title, created_by FROM tasks WHERE id = ?");
+            $stmt->execute([$taskId]);
+            $task = $stmt->fetch();
+            if ($task['created_by']) pushNotification($pdo, $task['created_by'], "{$user['name']} استلم المهمة \"{$task['title']}\" وبدأ العمل عليها.", 'task');
+        }
+        respond(['success' => true]);
+    }
+
+    case 'completeTaskAssignee': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $taskId = $b['taskId'] ?? 0;
+        $userId = $b['userId'] ?? $user['id'];
         if ($user['role'] !== 'admin' && $user['id'] != $userId) respond(['error' => 'غير مسموح'], 403);
 
         $stmt = $pdo->prepare("SELECT done FROM task_assignees WHERE task_id = ? AND user_id = ?");
         $stmt->execute([$taskId, $userId]);
         $row = $stmt->fetch();
         if (!$row) respond(['error' => 'المهمة غير موجودة'], 404);
-        $newDone = $row['done'] ? 0 : 1;
-        $completedAt = $newDone ? date('Y-m-d H:i:s') : null;
-        $pdo->prepare("UPDATE task_assignees SET done = ?, completed_at = ? WHERE task_id = ? AND user_id = ?")
-            ->execute([$newDone, $completedAt, $taskId, $userId]);
+        if ($row['done']) respond(['success' => true]);
 
-        if ($newDone) {
-            $stmt = $pdo->prepare("SELECT title, deadline FROM tasks WHERE id = ?");
-            $stmt->execute([$taskId]);
-            $task = $stmt->fetch();
-            $onTime = !$task['deadline'] || strtotime($completedAt) <= strtotime($task['deadline'] . ' 23:59:59');
-            if ($onTime) {
-                $s = $pdo->query("SELECT points_on_time, points_early_bonus, early_bonus_hours FROM settings WHERE id = 1")->fetch();
-                $pts = (int) $s['points_on_time'];
-                if ($task['deadline']) {
-                    $hoursEarly = (strtotime($task['deadline'] . ' 23:59:59') - strtotime($completedAt)) / 3600;
-                    if ($hoursEarly >= (int) $s['early_bonus_hours']) $pts += (int) $s['points_early_bonus'];
-                }
-                $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, ?)")->execute([$userId, $pts, "إنجاز مهمة: {$task['title']}"]);
-                pushNotification($pdo, $userId, "أحسنت! أنجزت \"{$task['title']}\" وحصلت على {$pts} نقطة.", 'points');
-            } else {
-                pushNotification($pdo, $userId, "أنجزت \"{$task['title']}\" بعد الموعد النهائي.", 'task');
+        $completedAt = date('Y-m-d H:i:s');
+        $pdo->prepare("UPDATE task_assignees SET done = 1, completed_at = ?, accepted = 1, accepted_at = COALESCE(accepted_at, ?) WHERE task_id = ? AND user_id = ?")
+            ->execute([$completedAt, $completedAt, $taskId, $userId]);
+
+        $stmt = $pdo->prepare("SELECT title, deadline FROM tasks WHERE id = ?");
+        $stmt->execute([$taskId]);
+        $task = $stmt->fetch();
+        $onTime = !$task['deadline'] || strtotime($completedAt) <= strtotime($task['deadline'] . ' 23:59:59');
+        if ($onTime) {
+            $s = $pdo->query("SELECT points_on_time, points_early_bonus, early_bonus_hours FROM settings WHERE id = 1")->fetch();
+            $pts = (int) $s['points_on_time'];
+            if ($task['deadline']) {
+                $hoursEarly = (strtotime($task['deadline'] . ' 23:59:59') - strtotime($completedAt)) / 3600;
+                if ($hoursEarly >= (int) $s['early_bonus_hours']) $pts += (int) $s['points_early_bonus'];
             }
+            $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, ?)")->execute([$userId, $pts, "إنجاز مهمة: {$task['title']}"]);
+            pushNotification($pdo, $userId, "أحسنت! أنجزت \"{$task['title']}\" وحصلت على {$pts} نقطة.", 'points');
+        } else {
+            pushNotification($pdo, $userId, "أنجزت \"{$task['title']}\" بعد الموعد النهائي.", 'task');
+        }
+
+        $stmt = $pdo->prepare("SELECT COUNT(*) total, SUM(done) doneCount FROM task_assignees WHERE task_id = ?");
+        $stmt->execute([$taskId]);
+        $cnt = $stmt->fetch();
+        if ($cnt['total'] > 0 && $cnt['total'] == $cnt['doneCount']) {
+            $pdo->prepare("UPDATE tasks SET status = 'done' WHERE id = ?")->execute([$taskId]);
         }
         respond(['success' => true]);
     }
+
+    case 'addAssigneeToTask': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $taskId = $b['taskId'] ?? 0;
+        $newUserId = $b['userId'] ?? 0;
+        if ($user['role'] !== 'admin') {
+            $stmt = $pdo->prepare("SELECT id FROM task_assignees WHERE task_id = ? AND user_id = ?");
+            $stmt->execute([$taskId, $user['id']]);
+            if (!$stmt->fetch()) respond(['error' => 'غير مسموح'], 403);
+        }
+        try {
+            $pdo->prepare("INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)")->execute([$taskId, $newUserId]);
+        } catch (\Throwable $e) {
+            respond(['error' => 'هذا الموظف مضاف للمهمة أصلًا'], 400);
+        }
+        $stmt = $pdo->prepare("SELECT title, deadline FROM tasks WHERE id = ?");
+        $stmt->execute([$taskId]);
+        $task = $stmt->fetch();
+        $deadlineTxt = $task['deadline'] ? date('d/m', strtotime($task['deadline'])) : 'غير محدد';
+        pushNotification($pdo, $newUserId, "تمت إضافتك لمهمة: \"{$task['title']}\" — الموعد النهائي {$deadlineTxt}.", 'task');
+        respond(['success' => true]);
+    }
+
+    case 'addTaskComment': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $taskId = $b['taskId'] ?? 0;
+        $message = trim($b['message'] ?? '');
+        if ($message === '') respond(['error' => 'اكتب تعليقًا'], 400);
+        if ($user['role'] !== 'admin') {
+            $stmt = $pdo->prepare("SELECT id FROM task_assignees WHERE task_id = ? AND user_id = ?");
+            $stmt->execute([$taskId, $user['id']]);
+            if (!$stmt->fetch()) respond(['error' => 'غير مسموح'], 403);
+        }
+        $pdo->prepare("INSERT INTO task_comments (task_id, user_id, message) VALUES (?, ?, ?)")->execute([$taskId, $user['id'], $message]);
+
+        $stmt = $pdo->prepare("SELECT title, created_by FROM tasks WHERE id = ?");
+        $stmt->execute([$taskId]);
+        $task = $stmt->fetch();
+        $notifyIds = [];
+        if ($task['created_by'] && $task['created_by'] != $user['id']) $notifyIds[] = $task['created_by'];
+        $stmt = $pdo->prepare("SELECT user_id FROM task_assignees WHERE task_id = ?");
+        $stmt->execute([$taskId]);
+        foreach ($stmt->fetchAll() as $r) if ($r['user_id'] != $user['id']) $notifyIds[] = $r['user_id'];
+        foreach (array_unique($notifyIds) as $nid) {
+            pushNotification($pdo, $nid, "{$user['name']} علّق على مهمة \"{$task['title']}\": " . mb_substr($message, 0, 80), 'task');
+        }
+        respond(['success' => true]);
+    }
+
+    case 'taskComments': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $taskId = $b['taskId'] ?? 0;
+        $stmt = $pdo->prepare("SELECT tc.id, tc.user_id AS userId, tc.message, tc.created_at AS createdAt, u.name AS userName FROM task_comments tc JOIN users u ON u.id = tc.user_id WHERE tc.task_id = ? ORDER BY tc.created_at ASC");
+        $stmt->execute([$taskId]);
+        respond(['comments' => $stmt->fetchAll()]);
+    }
+
 
     /* ============ الدوام ============ */
     case 'checkIn': {

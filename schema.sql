@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   title VARCHAR(255) NOT NULL,
   description TEXT,
   priority ENUM('low','medium','high') DEFAULT 'medium',
+  status ENUM('new','in_progress','done') NOT NULL DEFAULT 'new',
+  category VARCHAR(100) DEFAULT NULL,
   deadline DATE DEFAULT NULL,
   created_by INT DEFAULT NULL,
   project_id INT DEFAULT NULL,
@@ -62,11 +64,23 @@ CREATE TABLE IF NOT EXISTS task_assignees (
   id INT AUTO_INCREMENT PRIMARY KEY,
   task_id INT NOT NULL,
   user_id INT NOT NULL,
+  accepted TINYINT(1) NOT NULL DEFAULT 0,
+  accepted_at DATETIME DEFAULT NULL,
   done TINYINT(1) NOT NULL DEFAULT 0,
   completed_at DATETIME DEFAULT NULL,
   FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   UNIQUE KEY task_user (task_id, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS task_comments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  task_id INT NOT NULL,
+  user_id INT NOT NULL,
+  message TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS attendance (

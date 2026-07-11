@@ -148,6 +148,8 @@
   .badge-danger{background:var(--danger-tint);color:var(--danger);}
   .badge-primary{background:var(--primary-tint);color:var(--primary);}
   .badge-muted{background:var(--surface-2);color:var(--text-muted);}
+  .badge-new{background:#FFF0DB;color:#C2660A;}
+  .badge-inprogress{background:#E3ECFB;color:#2A5FCC;}
 
   .task-card{border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:10px;background:var(--surface-2);}
   .task-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
@@ -233,7 +235,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [],
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -530,7 +532,7 @@ async function handleCreateTask(e){
   const res = await apiPost('createTask', {
     title: f.title.value.trim(), description: f.description.value.trim(),
     priority: f.priority.value, deadline: f.deadline.value, assignees: selectedAssignees,
-    clientName: f.clientName.value.trim()
+    clientName: f.clientName.value.trim(), category: f.category.value.trim()
   });
   if(res.error){ showToast(res.error); return; }
   state.taskModal = false;
@@ -538,15 +540,40 @@ async function handleCreateTask(e){
   showToast('تم إنشاء المهمة وإرسال الإشعارات');
 }
 function taskStatus(task){
-  const allDone = task.assignees.every(a=>a.done);
+  const allDone = task.assignees.length>0 && task.assignees.every(a=>a.done);
   if(allDone) return 'done';
   if(task.deadline && new Date(task.deadline) < new Date()) return 'late';
-  return 'progress';
+  if(task.status==='in_progress') return 'in_progress';
+  return 'new';
 }
-async function toggleAssigneeDone(taskId, userId){
-  const res = await apiPost('toggleAssignee', { taskId, userId });
+async function acceptTask(taskId){
+  const res = await apiPost('acceptTask', { taskId });
   if(res.error){ showToast(res.error); return; }
   await refresh();
+  showToast('تم استلام المهمة، بالتوفيق! 💪');
+}
+async function completeTaskAssignee(taskId, userId){
+  const res = await apiPost('completeTaskAssignee', { taskId, userId });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  showToast('تم إنجاز المهمة ✅');
+}
+async function addAssigneeToTask(taskId, userId){
+  const res = await apiPost('addAssigneeToTask', { taskId, userId });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  showToast('تمت إضافة الزميل للمهمة');
+}
+async function addTaskComment(taskId, message){
+  const res = await apiPost('addTaskComment', { taskId, message });
+  if(res.error){ showToast(res.error); return; }
+  await loadTaskComments(taskId);
+  showToast('تم إضافة التعليق');
+}
+async function loadTaskComments(taskId){
+  const res = await apiPost('taskComments', { taskId });
+  state.taskComments = res.comments || [];
+  render();
 }
 async function handleRemoveTask(id){
   if(!confirm('هل أنت متأكد من حذف هذه المهمة نهائيًا؟')) return;
@@ -747,7 +774,7 @@ function sidebarNav(items, activeKey, tabState){
 function statusBadge(status){
   const map = {
     present:['حاضر','badge-success'], late:['متأخر','badge-warning'], absent:['غائب','badge-danger'],
-    done:['مكتملة','badge-success'], late_task:['متأخرة','badge-danger'], progress:['قيد التنفيذ','badge-primary'],
+    done:['منجزة','badge-success'], late_task:['متأخرة','badge-danger'], in_progress:['قيد التجهيز','badge-inprogress'], new:['مهمة جديدة','badge-new'],
     high:['عالية','badge-danger'], medium:['متوسطة','badge-warning'], low:['منخفضة','badge-muted']
   };
   const [label,cls] = map[status] || [status,'badge-muted'];
@@ -840,7 +867,7 @@ function adminDashboard(){
   const twoWeeksAgo = new Date(now - 14*86400000);
 
   const doneTasks = state.tasks.filter(t=>taskStatus(t)==='done');
-  const progressTasks = state.tasks.filter(t=>taskStatus(t)==='progress');
+  const progressTasks = state.tasks.filter(t=>['new','in_progress'].includes(taskStatus(t)));
   const lateTasks = state.tasks.filter(t=>taskStatus(t)==='late');
   const totalTasks = state.tasks.length;
 
@@ -1091,6 +1118,10 @@ function employeeModal(){
 }
 
 function adminTasks(){
+  if(state.openTaskId){
+    const t = state.tasks.find(t=>t.id==state.openTaskId);
+    if(t) return taskDetailPage(t);
+  }
   return `
   <div class="section-title" style="margin-bottom:14px;">كل المهام (${state.tasks.length}) ${state.taskModal?'':'<button class="btn btn-primary btn-sm" id="openTaskModal">+ مهمة جديدة</button>'}</div>
   ${state.taskModal ? taskInlineForm() : ''}
@@ -1101,11 +1132,14 @@ function adminTasks(){
 
 function taskCard(t, adminView){
   const status = taskStatus(t);
-  const statusKey = status==='done'?'done':status==='late'?'late_task':'progress';
+  const statusKey = status==='done'?'done':status==='late'?'late_task':status;
   return `
   <div class="task-card">
     <div class="task-top">
-      <div><div class="task-title">${t.title}</div>${t.description?`<div class="task-desc">${t.description}</div>`:''}</div>
+      <div style="flex:1;cursor:pointer;" data-open-task="${t.id}">
+        <div class="task-title">${t.title}</div>
+        ${t.description?`<div class="task-desc">${t.description}</div>`:''}
+      </div>
       <div style="display:flex;align-items:center;gap:6px;flex:none;">
         ${statusBadge(statusKey)}
         ${adminView?`<button class="btn btn-danger btn-sm" style="padding:4px 9px;font-size:11px;" data-remove-task="${t.id}">حذف</button>`:''}
@@ -1113,21 +1147,80 @@ function taskCard(t, adminView){
     </div>
     <div class="task-meta">
       ${statusBadge(t.priority)}
+      ${t.category?`<span class="badge badge-muted">🏷️ ${t.category}</span>`:''}
       ${t.clientId?`<span>🏢 ${state.clients?.find(c=>c.id==t.clientId)?.name||''}</span>`:''}
       ${t.deadline?`<span>⏳ الموعد: ${fmtDate(t.deadline)}</span>`:''}
-      <span>👥 ${t.assignees.length} موظف</span>
+      <span>👥 ${t.assignees.map(a=>{const u=state.users.find(u=>u.id===a.userId);return u?u.name.split(' ')[0]:'';}).join('، ')}</span>
     </div>
-    ${t.assignees.map(a=>{
-      const u = state.users.find(u=>u.id===a.userId);
-      const canToggle = !adminView && a.userId===state.currentUser.id;
-      return `<div class="assignee-row">
-        <span>${u?u.name:'—'}</span>
-        <div style="display:flex;align-items:center;gap:8px;">
-          ${a.done?`<span style="color:var(--success);font-size:11.5px;font-weight:700;">تم ✓</span>`:''}
-          <div class="check ${a.done?'done':''}" ${canToggle?`data-toggle-assignee="${t.id}|${a.userId}"`:''} style="${canToggle?'':'cursor:default;'}">${a.done?'✓':''}</div>
-        </div>
-      </div>`;
-    }).join('')}
+    <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px;" data-open-task="${t.id}">فتح المهمة والتعليقات ←</button>
+  </div>`;
+}
+
+function taskDetailPage(t){
+  const status = taskStatus(t);
+  const statusKey = status==='done'?'done':status==='late'?'late_task':status;
+  const me = state.currentUser;
+  const isAdmin = me.role==='admin';
+  const myAssignee = t.assignees.find(a=>a.userId===me.id);
+  const canManage = isAdmin || !!myAssignee;
+  const availableEmployees = state.users.filter(u=>u.role==='employee' && !t.assignees.some(a=>a.userId===u.id));
+  const comments = state.taskComments || [];
+
+  return `
+  <button class="btn btn-ghost btn-sm" id="closeTaskDetail" style="margin-bottom:14px;">→ رجوع لكل المهام</button>
+  <div class="card" style="margin-bottom:16px;">
+    <div class="task-top">
+      <div style="flex:1;">
+        <h2 style="font-size:16px;font-weight:800;margin-bottom:6px;">${t.title}</h2>
+        ${t.description?`<p style="font-size:13px;color:var(--text-muted);line-height:1.7;">${t.description}</p>`:''}
+      </div>
+      ${statusBadge(statusKey)}
+    </div>
+    <div class="task-meta" style="margin-top:10px;">
+      ${statusBadge(t.priority)}
+      ${t.category?`<span class="badge badge-muted">🏷️ ${t.category}</span>`:''}
+      ${t.clientId?`<span>🏢 ${state.clients?.find(c=>c.id==t.clientId)?.name||''}</span>`:''}
+      ${t.deadline?`<span>⏳ الموعد النهائي: ${fmtDate(t.deadline)}</span>`:''}
+    </div>
+
+    <div style="margin-top:18px;">
+      <div class="section-title" style="margin-bottom:8px;">الموظفون المسندون</div>
+      ${t.assignees.map(a=>{
+        const u = state.users.find(u=>u.id===a.userId);
+        const isMe = a.userId===me.id;
+        return `<div class="assignee-row">
+          <span>${u?u.name:''} ${isMe?'<span style="color:var(--text-faint);font-size:11px;">(أنت)</span>':''}</span>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
+            ${a.done?statusBadge('done'):a.accepted?statusBadge('in_progress'):statusBadge('new')}
+            ${isMe && !a.accepted ? `<button class="btn btn-primary btn-sm" data-accept-task="${t.id}">📥 استلام المهمة</button>` : ''}
+            ${isMe && a.accepted && !a.done ? `<button class="btn btn-primary btn-sm" style="background:var(--success);" data-complete-task="${t.id}|${a.userId}">✅ تم الإنجاز</button>` : ''}
+            ${isAdmin && !isMe && !a.done ? `<button class="btn btn-ghost btn-sm" data-complete-task="${t.id}|${a.userId}">تعليم كمنجزة</button>` : ''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    ${canManage && availableEmployees.length>0 ? `
+    <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border);">
+      <label style="font-size:12px;font-weight:700;color:var(--text-muted);">+ إضافة زميل لهذه المهمة</label>
+      <div class="chip-select" style="margin-top:6px;">
+        ${availableEmployees.map(e=>`<button type="button" class="chip" data-add-colleague="${t.id}|${e.id}">${e.name}</button>`).join('')}
+      </div>
+    </div>` : ''}
+  </div>
+
+  <div class="card">
+    <div class="section-title">💬 التعليقات</div>
+    <div id="taskCommentsList" style="max-height:340px;overflow-y:auto;margin-bottom:12px;">
+      ${comments.length===0?`<div class="empty">لا توجد تعليقات بعد، ابدأ النقاش</div>`:comments.map(c=>`
+        <div class="notif-item"><div class="avatar" style="width:30px;height:30px;font-size:12px;">${c.userName[0]}</div>
+          <div><div class="notif-text"><b>${c.userName}</b> — ${c.message}</div><div class="notif-time">${fmtDateTime(c.createdAt)}</div></div></div>
+      `).join('')}
+    </div>
+    <form id="taskCommentForm" style="display:flex;gap:8px;">
+      <input name="message" placeholder="اكتب تعليقًا..." style="flex:1;padding:10px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-size:16px;" autocomplete="off" required/>
+      <button type="submit" class="btn btn-primary btn-sm">إرسال</button>
+    </form>
   </div>`;
 }
 
@@ -1273,7 +1366,7 @@ function reportsOverview(){
     <div class="card">
       <div class="section-title">حالة المهام</div>
       <div class="assignee-row"><span>مكتملة</span><span class="badge badge-success">${doneTasks.length}</span></div>
-      <div class="assignee-row"><span>قيد التنفيذ</span><span class="badge badge-primary">${state.tasks.filter(t=>taskStatus(t)==='progress').length}</span></div>
+      <div class="assignee-row"><span>قيد التنفيذ</span><span class="badge badge-primary">${state.tasks.filter(t=>['new','in_progress'].includes(taskStatus(t))).length}</span></div>
       <div class="assignee-row"><span>متأخرة</span><span class="badge badge-danger">${lateTasks.length}</span></div>
     </div>
   </div>`;
@@ -1299,7 +1392,7 @@ function reportsEmployees(){
 }
 
 function reportsTasks(){
-  const byStatus = { done: state.tasks.filter(t=>taskStatus(t)==='done'), progress: state.tasks.filter(t=>taskStatus(t)==='progress'), late: state.tasks.filter(t=>taskStatus(t)==='late') };
+  const byStatus = { done: state.tasks.filter(t=>taskStatus(t)==='done'), progress: state.tasks.filter(t=>['new','in_progress'].includes(taskStatus(t))), late: state.tasks.filter(t=>taskStatus(t)==='late') };
   const byPriority = { high: state.tasks.filter(t=>t.priority==='high').length, medium: state.tasks.filter(t=>t.priority==='medium').length, low: state.tasks.filter(t=>t.priority==='low').length };
   return `
   <div class="grid grid-2" style="margin-bottom:16px;">
@@ -1437,6 +1530,13 @@ function taskInlineForm(){
       <div class="form-row">
         <div class="field"><label>الأولوية</label><select name="priority"><option value="medium">متوسطة</option><option value="high">عالية</option><option value="low">منخفضة</option></select></div>
         <div class="field"><label>الموعد النهائي</label><input name="deadline" type="date" required/></div>
+      </div>
+      <div class="field">
+        <label>تصنيف المهمة (اختياري)</label>
+        <input name="category" list="categoriesDatalist" placeholder="مثال: تصميم، محتوى، إعلانات..." autocomplete="off"/>
+        <datalist id="categoriesDatalist">
+          ${[...new Set(state.tasks.map(t=>t.category).filter(Boolean))].map(c=>`<option value="${c}"></option>`).join('')}
+        </datalist>
       </div>
       <div class="field" style="position:relative;">
         <label>الشركة / العميل (اختياري — اكتب اسمًا موجودًا أو جديدًا)</label>
@@ -1577,6 +1677,10 @@ function attendanceCard(rec){
 }
 
 function empTasks(){
+  if(state.openTaskId){
+    const t = state.tasks.find(t=>t.id==state.openTaskId);
+    if(t) return taskDetailPage(t);
+  }
   const myTasks = state.tasks.filter(t=>t.assignees.some(a=>a.userId===state.currentUser.id));
   return `${myTasks.length===0?`<div class="card"><div class="empty">لا توجد مهام مسندة إليك حاليًا</div></div>`:myTasks.map(t=>taskCard(t,false)).join('')}`;
 }
@@ -1778,8 +1882,31 @@ function attachAppEvents(){
   document.querySelectorAll('[data-review-leave]').forEach(el=>{
     el.addEventListener('click', ()=>{ const [id,status] = el.getAttribute('data-review-leave').split('|'); handleReviewLeave(id,status); });
   });
-  document.querySelectorAll('[data-toggle-assignee]').forEach(el=>{
-    el.addEventListener('click', ()=>{ const [tid,uid] = el.getAttribute('data-toggle-assignee').split('|'); toggleAssigneeDone(tid,uid); });
+  document.querySelectorAll('[data-open-task]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const id = el.getAttribute('data-open-task');
+      state.openTaskId = id;
+      render();
+      loadTaskComments(id);
+      window.scrollTo({top:0, behavior:'smooth'});
+    });
+  });
+  document.getElementById('closeTaskDetail')?.addEventListener('click', ()=>{ state.openTaskId = null; state.taskComments = []; render(); });
+  document.querySelectorAll('[data-accept-task]').forEach(el=>{
+    el.addEventListener('click', ()=> acceptTask(el.getAttribute('data-accept-task')));
+  });
+  document.querySelectorAll('[data-complete-task]').forEach(el=>{
+    el.addEventListener('click', ()=>{ const [tid,uid] = el.getAttribute('data-complete-task').split('|'); completeTaskAssignee(tid,uid); });
+  });
+  document.querySelectorAll('[data-add-colleague]').forEach(el=>{
+    el.addEventListener('click', ()=>{ const [tid,uid] = el.getAttribute('data-add-colleague').split('|'); addAssigneeToTask(tid,uid); });
+  });
+  document.getElementById('taskCommentForm')?.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const msg = e.target.message.value.trim();
+    if(!msg) return;
+    addTaskComment(state.openTaskId, msg);
+    e.target.message.value = '';
   });
 
   document.getElementById('checkInBtn')?.addEventListener('click', checkIn);
