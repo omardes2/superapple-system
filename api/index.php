@@ -345,9 +345,11 @@ switch ($action) {
         $taskId = $b['taskId'] ?? 0;
         $newUserId = $b['userId'] ?? 0;
         if ($user['role'] !== 'admin') {
-            $stmt = $pdo->prepare("SELECT id FROM task_assignees WHERE task_id = ? AND user_id = ?");
+            $stmt = $pdo->prepare("SELECT accepted FROM task_assignees WHERE task_id = ? AND user_id = ?");
             $stmt->execute([$taskId, $user['id']]);
-            if (!$stmt->fetch()) respond(['error' => 'غير مسموح'], 403);
+            $row = $stmt->fetch();
+            if (!$row) respond(['error' => 'غير مسموح'], 403);
+            if (!$row['accepted']) respond(['error' => 'يجب استلام المهمة أولًا قبل إضافة زميل عليها'], 403);
         }
         try {
             $pdo->prepare("INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)")->execute([$taskId, $newUserId]);

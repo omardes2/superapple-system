@@ -1162,7 +1162,7 @@ function taskDetailPage(t){
   const me = state.currentUser;
   const isAdmin = me.role==='admin';
   const myAssignee = t.assignees.find(a=>a.userId===me.id);
-  const canManage = isAdmin || !!myAssignee;
+  const canManage = isAdmin || (!!myAssignee && myAssignee.accepted);
   const availableEmployees = state.users.filter(u=>u.role==='employee' && !t.assignees.some(a=>a.userId===u.id));
   const comments = state.taskComments || [];
 
@@ -1206,7 +1206,10 @@ function taskDetailPage(t){
       <div class="chip-select" style="margin-top:6px;">
         ${availableEmployees.map(e=>`<button type="button" class="chip" data-add-colleague="${t.id}|${e.id}">${e.name}</button>`).join('')}
       </div>
-    </div>` : ''}
+    </div>` : (!isAdmin && myAssignee && !myAssignee.accepted ? `
+    <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border);">
+      <p style="font-size:11.5px;color:var(--text-faint);">💡 استلم المهمة أولًا عشان تقدر تضيف زميل معك عليها.</p>
+    </div>` : '')}
   </div>
 
   <div class="card">
