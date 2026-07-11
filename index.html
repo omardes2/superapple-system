@@ -1684,8 +1684,12 @@ function empTasks(){
     const t = state.tasks.find(t=>t.id==state.openTaskId);
     if(t) return taskDetailPage(t);
   }
-  const myTasks = state.tasks.filter(t=>t.assignees.some(a=>a.userId===state.currentUser.id));
-  return `${myTasks.length===0?`<div class="card"><div class="empty">لا توجد مهام مسندة إليك حاليًا</div></div>`:myTasks.map(t=>taskCard(t,false)).join('')}`;
+  const myTasks = state.tasks.filter(t=>t.assignees.some(a=>a.userId===state.currentUser.id) || t.createdBy===state.currentUser.id);
+  return `
+  <div class="section-title" style="margin-bottom:14px;">مهامي (${myTasks.length}) ${state.taskModal?'':'<button class="btn btn-primary btn-sm" id="openTaskModal">+ مهمة جديدة</button>'}</div>
+  ${state.taskModal ? taskInlineForm() : ''}
+  ${myTasks.length===0?`<div class="card"><div class="empty">لا توجد مهام مسندة إليك حاليًا</div></div>`:myTasks.map(t=>taskCard(t,false)).join('')}
+  `;
 }
 
 function empAttendance(){

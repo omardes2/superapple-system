@@ -120,8 +120,8 @@ switch ($action) {
 
             $payload['users'] = $pdo->query("SELECT id, name, email, role, department, phone, work_start AS workStart, work_end AS workEnd, join_date AS joinDate FROM users")->fetchAll();
 
+            $payload['clients'] = $pdo->query("SELECT id, name, contact_name AS contactName, phone, email, notes, created_at AS createdAt FROM clients ORDER BY name")->fetchAll();
             if ($isAdmin) {
-                $payload['clients'] = $pdo->query("SELECT id, name, contact_name AS contactName, phone, email, notes, created_at AS createdAt FROM clients ORDER BY name")->fetchAll();
                 $payload['departments'] = $pdo->query("SELECT id, name FROM departments ORDER BY name")->fetchAll();
             }
 
@@ -136,6 +136,7 @@ switch ($action) {
             unset($t);
             if (!$isAdmin) {
                 $tasks = array_values(array_filter($tasks, function ($t) use ($currentUser) {
+                    if ($t['createdBy'] == $currentUser['id']) return true;
                     foreach ($t['assignees'] as $a) if ($a['userId'] == $currentUser['id']) return true;
                     return false;
                 }));
@@ -246,7 +247,7 @@ switch ($action) {
 
     /* ============ المهام ============ */
     case 'createTask': {
-        $admin = requireAdmin($pdo);
+        $admin = requireLogin($pdo);
         $b = bodyInput();
         if (empty($b['title']) || empty($b['assignees'])) respond(['error' => 'العنوان والموظفون المسندون مطلوبون'], 400);
 
@@ -344,7 +345,11 @@ switch ($action) {
         $b = bodyInput();
         $taskId = $b['taskId'] ?? 0;
         $newUserId = $b['userId'] ?? 0;
-        if ($user['role'] !== 'admin') {
+        $stmt = $pdo->prepare("SELECT created_by FROM tasks WHERE id = ?");
+        $stmt->execute([$taskId]);
+        $taskRow = $stmt->fetch();
+        $isOwner = $taskRow && $taskRow['created_by'] == $user['id'];
+        if ($user['role'] !== 'admin' && !$isOwner) {
             $stmt = $pdo->prepare("SELECT accepted FROM task_assignees WHERE task_id = ? AND user_id = ?");
             $stmt->execute([$taskId, $user['id']]);
             $row = $stmt->fetch();
@@ -370,7 +375,11 @@ switch ($action) {
         $taskId = $b['taskId'] ?? 0;
         $message = trim($b['message'] ?? '');
         if ($message === '') respond(['error' => 'اكتب تعليقًا'], 400);
-        if ($user['role'] !== 'admin') {
+        $stmt = $pdo->prepare("SELECT created_by FROM tasks WHERE id = ?");
+        $stmt->execute([$taskId]);
+        $taskRow = $stmt->fetch();
+        $isOwner = $taskRow && $taskRow['created_by'] == $user['id'];
+        if ($user['role'] !== 'admin' && !$isOwner) {
             $stmt = $pdo->prepare("SELECT id FROM task_assignees WHERE task_id = ? AND user_id = ?");
             $stmt->execute([$taskId, $user['id']]);
             if (!$stmt->fetch()) respond(['error' => 'غير مسموح'], 403);
