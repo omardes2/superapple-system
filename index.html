@@ -856,8 +856,16 @@ function adminDashboard(){
 
   const top = leaderboard().slice(0,3);
   const recentActivity = state.notifications.slice(0,6);
+  const pendingLeaves = (state.leaveRequests||[]).filter(l=>l.status==='pending');
 
   return `
+  ${pendingLeaves.length>0?`
+  <div class="whatsapp-banner" style="background:var(--warning-tint);border-color:rgba(217,121,26,0.3);color:#8A4E0E;cursor:pointer;" id="pendingLeavesBanner">
+    🏖️ <div style="flex:1;"><b>${pendingLeaves.length} طلب إجازة بانتظار المراجعة:</b>
+      ${pendingLeaves.slice(0,3).map(l=>{const u=state.users.find(u=>u.id===l.userId);return u?u.name:'';}).join('، ')}${pendingLeaves.length>3?` +${pendingLeaves.length-3} آخرين`:''}
+      — دوس هنا للمراجعة من تبويب "الدوام"
+    </div>
+  </div>` : ''}
   ${whatsappBanner()}
   <div class="grid grid-4" style="margin-bottom:16px;">
     <div class="card stat-card stat-card-v2">
@@ -1662,6 +1670,7 @@ function empReport(){
 /* ---------------- EVENT WIRING ---------------- */
 function attachAppEvents(){
   document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
+  document.getElementById('pendingLeavesBanner')?.addEventListener('click', ()=>{ state.adminTab='attendance'; render(); });
   document.getElementById('hamburgerBtn')?.addEventListener('click', ()=>{ state.mobileMenuOpen = !state.mobileMenuOpen; render(); });
   document.getElementById('mobileOverlay')?.addEventListener('click', ()=>{ state.mobileMenuOpen = false; render(); });
   document.querySelectorAll('[data-tab]').forEach(el=>{
