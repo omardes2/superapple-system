@@ -170,7 +170,8 @@
   .chat-bubble-time{font-size:10px;color:var(--text-faint);margin-top:4px;}
 
   .team-chat-widget{position:fixed;bottom:22px;left:22px;z-index:150;display:flex;flex-direction:column;align-items:flex-start;gap:12px;}
-  .team-chat-bubble-btn{position:relative;width:56px;height:56px;border-radius:50%;background:var(--primary);color:#fff;font-size:24px;box-shadow:0 6px 20px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;flex:none;}
+  .team-chat-bubble-btn{position:relative;width:58px;height:58px;border-radius:50%;background:#fff;color:#fff;font-size:24px;box-shadow:0 6px 20px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;border:2px solid var(--accent);padding:0;}
+  .team-chat-bubble-btn img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
   .team-chat-bubble-btn:hover{transform:scale(1.05);}
   .team-chat-dot{position:absolute;top:-3px;left:-3px;min-width:20px;height:20px;padding:0 4px;border-radius:10px;background:var(--danger);border:2px solid var(--surface);color:#fff;font-size:10.5px;font-weight:800;display:flex;align-items:center;justify-content:center;}
   .team-chat-panel{width:330px;max-width:calc(100vw - 44px);height:440px;max-height:70vh;background:var(--surface);border-radius:var(--radius);box-shadow:0 10px 40px rgba(0,0,0,0.3);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--border);}
@@ -522,21 +523,31 @@ function scrollChatToBottom(){
     if(t1) t1.scrollTop = t1.scrollHeight;
   }, 30);
 }
+function getLastReadChatId(){
+  try{ return parseInt(localStorage.getItem('sa_teamchat_last_read')||'0', 10) || 0; }catch(e){ return 0; }
+}
+function setLastReadChatId(id){
+  try{ localStorage.setItem('sa_teamchat_last_read', String(id)); }catch(e){}
+}
+
 async function loadTeamChat(silent){
   const res = await apiPost('teamChatMessages', {});
   const msgs = res.messages || [];
   const newest = msgs.length ? msgs[msgs.length-1] : null;
+
   if(newest && newest.id > state.teamChatLastId){
-    const isFirstLoad = state.teamChatLastId === 0;
-    if(!isFirstLoad){
-      const newOnes = msgs.filter(m=>m.id>state.teamChatLastId && m.userId!==state.currentUser.id);
-      if(newOnes.length>0){
+    const isFirstCheck = state.teamChatLastId === 0;
+    const sinceId = isFirstCheck ? getLastReadChatId() : state.teamChatLastId;
+    const newOnes = msgs.filter(m=>m.id>sinceId && m.userId!==state.currentUser.id);
+    if(newOnes.length>0){
+      if(!isFirstCheck){
         playChatBeep();
         if(document.hidden) showBrowserNotification(newOnes[newOnes.length-1].userName, newOnes[newOnes.length-1].message);
-        if(!state.teamChatOpen) state.teamChatUnreadCount += newOnes.length;
       }
+      if(!state.teamChatOpen) state.teamChatUnreadCount = newOnes.length;
     }
     state.teamChatLastId = newest.id;
+    if(state.teamChatOpen) setLastReadChatId(newest.id);
   }
   state.teamChat = msgs;
   if(!silent || state.teamChatOpen){ render(); if(state.teamChatOpen) scrollChatToBottom(); }
@@ -1853,8 +1864,8 @@ function teamChatWidget(){
         <button type="submit" class="btn btn-primary btn-sm">إرسال</button>
       </form>
     </div>` : ''}
-    <button type="button" id="toggleTeamChatWidget" class="team-chat-bubble-btn">
-      ${open?'✕':'💬'}
+    <button type="button" id="toggleTeamChatWidget" class="team-chat-bubble-btn" style="${open?'background:var(--primary);border-color:var(--primary);':''}">
+      ${open?'<span style="font-size:22px;color:#fff;">✕</span>':'<img src="assets/logo-small.png" alt="دردشة الفريق"/>'}
       ${!open && state.teamChatUnreadCount>0 ? `<span class="team-chat-dot">${state.teamChatUnreadCount>9?'9+':state.teamChatUnreadCount}</span>` : ''}
     </button>
   </div>`;
@@ -2425,7 +2436,11 @@ function attachAppEvents(){
   });
   document.getElementById('toggleTeamChatWidget')?.addEventListener('click', ()=>{
     state.teamChatOpen = !state.teamChatOpen;
-    if(state.teamChatOpen){ state.teamChatUnreadCount = 0; loadTeamChat(false); }
+    if(state.teamChatOpen){
+      state.teamChatUnreadCount = 0;
+      if(state.teamChatLastId) setLastReadChatId(state.teamChatLastId);
+      loadTeamChat(false);
+    }
     else render();
   });
   document.getElementById('closeTeamChatWidget')?.addEventListener('click', ()=>{
