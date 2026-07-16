@@ -1206,7 +1206,7 @@ function taskCard(t, adminView){
       ${t.deadline?`<span class="badge badge-muted">📅 ${fmtDate(t.deadline)}</span>`:''}
     </div>
     <div class="task-card-foot">
-      ${t.assignees.length>0?miniAvatars(t.assignees):`<span class="task-assignees-mini">بدون موظفين</span>`}
+      <span class="task-assignees-mini">👥 ${t.assignees.length>0?t.assignees.map(a=>{const u=state.users.find(u=>u.id===a.userId);return u?u.name.split(' ')[0]:'';}).join('، '):'بدون موظفين'}</span>
       <div style="display:flex;gap:6px;">
         ${adminView?`<button class="btn btn-danger btn-sm" data-remove-task="${t.id}">حذف</button>`:''}
         <button class="btn btn-primary btn-sm" data-open-task="${t.id}">فتح ←</button>
