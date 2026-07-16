@@ -53,6 +53,16 @@ function sendWhatsAppCloud($pdo, $phone, $bodyText) {
             ->execute([$phone, $bodyText, $success ? 1 : 0, $responseText]);
     } catch (\Throwable $e) { /* جدول السجل قد لا يكون موجودًا بعد على استضافات لم تحدّث قاعدة البيانات */ }
 
+    if ($success) {
+        try {
+            $waMessageId = null;
+            $decoded = json_decode($raw, true);
+            if (isset($decoded['messages'][0]['id'])) $waMessageId = $decoded['messages'][0]['id'];
+            $pdo->prepare("INSERT INTO whatsapp_messages (phone, direction, message, wa_message_id) VALUES (?, 'out', ?, ?)")
+                ->execute([preg_replace('/\D/', '', $phone), $bodyText, $waMessageId]);
+        } catch (\Throwable $e) { /* جدول صندوق الرسائل قد لا يكون موجودًا بعد */ }
+    }
+
     if (!$success) {
         $decoded = json_decode($raw, true);
         $friendly = $decoded['error']['message'] ?? ($curlErr ?: 'خطأ غير معروف');

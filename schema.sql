@@ -156,6 +156,16 @@ CREATE TABLE IF NOT EXISTS claim_reminders (
   FOREIGN KEY (claim_id) REFERENCES financial_claims(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS whatsapp_messages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  phone VARCHAR(30) NOT NULL,
+  direction ENUM('in','out') NOT NULL,
+  message TEXT NOT NULL,
+  wa_message_id VARCHAR(120) DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_phone (phone)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS webauthn_credentials (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
@@ -178,7 +188,9 @@ CREATE TABLE IF NOT EXISTS settings (
   penalty_absent INT DEFAULT 10,
   whatsapp_phone_id VARCHAR(50) DEFAULT NULL,
   whatsapp_token TEXT DEFAULT NULL,
-  whatsapp_template VARCHAR(100) DEFAULT 'hello_world'
+  whatsapp_template VARCHAR(100) DEFAULT 'hello_world',
+  whatsapp_verify_token VARCHAR(100) DEFAULT NULL,
+  whatsapp_app_secret VARCHAR(150) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO settings (id) VALUES (1)

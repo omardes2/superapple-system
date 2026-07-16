@@ -110,7 +110,8 @@ switch ($action) {
         $settingsRow = $pdo->query("SELECT work_start AS workStart, grace_minutes AS graceMinutes,
             points_on_time AS pointsOnTime, points_early_bonus AS pointsEarlyBonus, early_bonus_hours AS earlyBonusHours,
             points_attendance AS pointsAttendance, penalty_late AS penaltyLate, penalty_absent AS penaltyAbsent,
-            whatsapp_phone_id AS whatsappPhoneId, whatsapp_token AS whatsappToken, whatsapp_template AS whatsappTemplate
+            whatsapp_phone_id AS whatsappPhoneId, whatsapp_token AS whatsappToken, whatsapp_template AS whatsappTemplate,
+            whatsapp_verify_token AS whatsappVerifyToken, whatsapp_app_secret AS whatsappAppSecret
             FROM settings WHERE id = 1")->fetch();
 
         $payload = ['hasUsers' => $hasUsers, 'currentUser' => $currentUser, 'settings' => $settingsRow ?: null];
@@ -508,6 +509,37 @@ switch ($action) {
         requireAdmin($pdo);
         $rows = $pdo->query("SELECT phone, success, response, created_at AS createdAt FROM whatsapp_log ORDER BY id DESC LIMIT 15")->fetchAll();
         respond(['log' => $rows]);
+    }
+
+    case 'waConversations': {
+        requireAdmin($pdo);
+        $rows = $pdo->query("
+            SELECT m.phone,
+                   (SELECT message FROM whatsapp_messages m2 WHERE m2.phone = m.phone ORDER BY m2.id DESC LIMIT 1) AS lastMessage,
+                   (SELECT created_at FROM whatsapp_messages m3 WHERE m3.phone = m.phone ORDER BY m3.id DESC LIMIT 1) AS lastAt,
+                   (SELECT COUNT(*) FROM whatsapp_messages m4 WHERE m4.phone = m.phone) AS total
+            FROM whatsapp_messages m
+            GROUP BY m.phone
+            ORDER BY lastAt DESC
+        ")->fetchAll();
+        respond(['conversations' => $rows]);
+    }
+
+    case 'waThread': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $phone = preg_replace('/\D/', '', $b['phone'] ?? '');
+        $stmt = $pdo->prepare("SELECT direction, message, created_at AS createdAt FROM whatsapp_messages WHERE phone = ? ORDER BY id ASC");
+        $stmt->execute([$phone]);
+        respond(['messages' => $stmt->fetchAll()]);
+    }
+
+    case 'updateWebhookSettings': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("UPDATE settings SET whatsapp_verify_token = ?, whatsapp_app_secret = ? WHERE id = 1")
+            ->execute([trim($b['verifyToken'] ?? ''), trim($b['appSecret'] ?? '')]);
+        respond(['success' => true]);
     }
 
     /* ============ المطالبات المالية ============ */
