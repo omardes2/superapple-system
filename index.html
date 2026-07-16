@@ -252,7 +252,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false,
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0,
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'all', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -459,6 +459,50 @@ async function openWaThread(phone){
   state.waThread = res.messages || [];
   render();
 }
+
+/* ---------------- TEAM CHAT ---------------- */
+function playChatBeep(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(880, ctx.currentTime);
+    o.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
+    g.gain.setValueAtTime(0.18, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    o.start();
+    o.stop(ctx.currentTime + 0.35);
+  }catch(e){ /* المتصفح رفض تشغيل الصوت (نادر) */ }
+}
+function scrollChatToBottom(){
+  setTimeout(()=>{
+    const t1 = document.getElementById('teamChatThread');
+    if(t1) t1.scrollTop = t1.scrollHeight;
+  }, 30);
+}
+async function loadTeamChat(silent){
+  const res = await apiPost('teamChatMessages', {});
+  const msgs = res.messages || [];
+  const newest = msgs.length ? msgs[msgs.length-1] : null;
+  if(newest && newest.id > state.teamChatLastId){
+    const isFirstLoad = state.teamChatLastId === 0;
+    if(!isFirstLoad && newest.userId !== state.currentUser.id) playChatBeep();
+    state.teamChatLastId = newest.id;
+  }
+  state.teamChat = msgs;
+  if(!silent){ render(); scrollChatToBottom(); }
+  else if((state.currentUser.role==='admin' && state.adminTab==='teamchat') || (state.currentUser.role==='employee' && state.empTab==='teamchat')){
+    render(); scrollChatToBottom();
+  }
+}
+async function sendTeamChatMessage(message){
+  const res = await apiPost('sendTeamChatMessage', { message });
+  if(res.error){ showToast(res.error); return; }
+  await loadTeamChat(false);
+}
+setInterval(()=>{ if(state.currentUser) loadTeamChat(true); }, 6000);
 
 
 /* ---------------- ATTENDANCE ---------------- */
@@ -827,6 +871,7 @@ const ICONS = {
   employees: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.5 2.9-6 6.5-6s6.5 2.5 6.5 6"/><path d="M16.5 6.5a3 3 0 010 6"/><path d="M21.5 20c-.2-2.8-1.9-5-4.5-5.7"/></svg>`,
   departments: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`,
   claims: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 012-2h9l5 5v9a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"/><path d="M14 4v5h5"/><path d="M8 13h8M8 17h5"/></svg>`,
+  teamchat: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v10H8l-4 4V5z"/><path d="M8 9h8M8 12h5"/></svg>`,
   attendance: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`,
   rewards: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v5a4 4 0 01-8 0V4z"/><path d="M8 6H5a2 2 0 002 4M16 6h3a2 2 0 01-2 4"/><path d="M12 13v3"/><path d="M9 20h6M10 16.5h4v3.5h-4z"/></svg>`,
   reports: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M9 13v4M12 11v6M15 15v2"/></svg>`,
@@ -871,6 +916,7 @@ function renderAdmin(){
     {key:'claims', icon:'claims', label:'المطالبات المالية'},
     {key:'whatsapp', icon:'whatsapp', label:'ربط واتساب'},
     {key:'inbox', icon:'notifications', label:'صندوق الرسائل'},
+    {key:'teamchat', icon:'teamchat', label:'دردشة الفريق'},
     {key:'notifications', icon:'notifications', label:'الإشعارات'},
   ];
   return `
@@ -904,14 +950,14 @@ function renderAdmin(){
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', notifications:'سجل الإشعارات'}; }
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', teamchat:'دردشة الفريق', notifications:'سجل الإشعارات'}; }
 function adminSubs(){ return {
   dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
   tasks:'إنشاء متابعة المهام الفردية والمشتركة', clients:'عملاء الوكالة وبيانات التواصل معهم', departments:'أقسام الشركة وتوزيع الموظفين عليها',
   attendance:'حالة الحضور والانصراف، ومراجعة طلبات الإجازة',
   rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي',
   claims:'متابعة الحسابات والديون المستحقة على العملاء وإرسال تذكيرات',
-  whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', inbox:'كل الرسائل الصادرة والواردة عبر واتساب في مكان واحد', notifications:'كل التنبيهات المُرسلة للفريق'
+  whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', inbox:'كل الرسائل الصادرة والواردة عبر واتساب في مكان واحد', teamchat:'محادثة جماعية لكل الفريق مع بعض', notifications:'كل التنبيهات المُرسلة للفريق'
 }; }
 
 function adminTabContent(){
@@ -927,6 +973,7 @@ function adminTabContent(){
     case 'claims': return adminClaims();
     case 'whatsapp': return adminWhatsapp();
     case 'inbox': return adminInbox();
+    case 'teamchat': return teamChatPage();
     case 'notifications': return notificationsList(true);
   }
 }
@@ -1729,6 +1776,32 @@ function claimForm(){
   </div>`;
 }
 
+function teamChatPage(){
+  const msgs = state.teamChat || [];
+  const me = state.currentUser;
+  return `
+  <div class="card">
+    <div class="section-title">💬 دردشة الفريق (كل الموظفين والمدير)</div>
+    <div id="teamChatThread" class="chat-thread" style="max-height:500px;">
+      ${msgs.length===0?`<div class="empty">لا توجد رسائل بعد، ابدأ الدردشة مع فريقك</div>`:msgs.map(m=>{
+        const isMe = m.userId===me.id;
+        return `<div class="chat-bubble-row ${isMe?'mine':''}">
+          <div class="avatar" style="width:28px;height:28px;font-size:11px;">${m.userName[0]}</div>
+          <div class="chat-bubble ${isMe?'mine':''}">
+            <div class="chat-bubble-name">${m.userName}</div>
+            <div class="chat-bubble-text">${m.message}</div>
+            <div class="chat-bubble-time">${fmtDateTime(m.createdAt)}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <form id="teamChatForm" style="display:flex;gap:8px;margin-top:12px;">
+      <input name="message" placeholder="اكتب رسالة للفريق..." style="flex:1;padding:10px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-size:16px;" autocomplete="off" required/>
+      <button type="submit" class="btn btn-primary btn-sm">إرسال</button>
+    </form>
+  </div>`;
+}
+
 function adminInbox(){
   const convos = state.waConversations || [];
   const activePhone = state.waActivePhone;
@@ -1893,6 +1966,7 @@ function renderEmployee(){
     {key:'points', icon:'rewards', label:'نقاطي'},
     {key:'report', icon:'reports', label:'تقريري الشهري'},
     ...(state.currentUser.canSendClaims ? [{key:'claims', icon:'claims', label:'تذكيرات المطالبات'}] : []),
+    {key:'teamchat', icon:'teamchat', label:'دردشة الفريق'},
     {key:'notifications', icon:'notifications', label:'الإشعارات'},
   ];
   return `
@@ -1920,11 +1994,11 @@ function renderEmployee(){
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي وإجازاتي', points:'نقاطي وترتيبي', report:'تقريري الشهري', claims:'تذكيرات المطالبات المالية', notifications:'الإشعارات'}; }
+function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي وإجازاتي', points:'نقاطي وترتيبي', report:'تقريري الشهري', claims:'تذكيرات المطالبات المالية', teamchat:'دردشة الفريق', notifications:'الإشعارات'}; }
 function empSubs(){ return {
   dashboard:'نظرة سريعة على يومك', tasks:'المهام المسندة لك بشكل فردي أو مشترك',
   attendance:'سجل حضورك وانصرافك، وطلب إجازة جديدة', points:'رصيدك من النقاط وترتيبك بين الفريق',
-  report:'أداؤك خلال الشهر الحالي', claims:'إضافة مطالبات، تسجيل دفعات، وإرسال تذكيرات واتساب', notifications:'كل التنبيهات الخاصة بك'
+  report:'أداؤك خلال الشهر الحالي', claims:'إضافة مطالبات، تسجيل دفعات، وإرسال تذكيرات واتساب', teamchat:'محادثة جماعية لكل الفريق مع بعض', notifications:'كل التنبيهات الخاصة بك'
 }; }
 
 function empTabContent(){
@@ -1935,6 +2009,7 @@ function empTabContent(){
     case 'points': return empPoints();
     case 'report': return empReport();
     case 'claims': return state.currentUser.canSendClaims ? adminClaims() : empClaims();
+    case 'teamchat': return teamChatPage();
     case 'notifications': return notificationsList(false);
   }
 }
@@ -2117,6 +2192,7 @@ function attachAppEvents(){
       const tab = el.getAttribute('data-tab');
       if(state.currentUser.role==='admin') state.adminTab = tab; else state.empTab = tab;
       if(tab==='inbox') state.waConversationsLoaded = false;
+      if(tab==='teamchat') loadTeamChat(false);
       state.mobileMenuOpen = false;
       render();
     });
@@ -2279,6 +2355,13 @@ function attachAppEvents(){
     const msg = e.target.message.value.trim();
     if(!msg) return;
     addTaskComment(state.openTaskId, msg);
+    e.target.message.value = '';
+  });
+  document.getElementById('teamChatForm')?.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const msg = e.target.message.value.trim();
+    if(!msg) return;
+    sendTeamChatMessage(msg);
     e.target.message.value = '';
   });
 

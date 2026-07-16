@@ -612,6 +612,26 @@ switch ($action) {
         respond(['log' => $stmt->fetchAll()]);
     }
 
+    /* ============ محادثة الفريق الجماعية ============ */
+    case 'teamChatMessages': {
+        requireLogin($pdo);
+        $rows = $pdo->query("
+            SELECT tm.id, tm.user_id AS userId, u.name AS userName, tm.message, tm.created_at AS createdAt
+            FROM team_messages tm JOIN users u ON u.id = tm.user_id
+            ORDER BY tm.id DESC LIMIT 60
+        ")->fetchAll();
+        respond(['messages' => array_reverse($rows)]);
+    }
+
+    case 'sendTeamChatMessage': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $message = trim($b['message'] ?? '');
+        if ($message === '') respond(['error' => 'اكتب رسالة'], 400);
+        $pdo->prepare("INSERT INTO team_messages (user_id, message) VALUES (?, ?)")->execute([$user['id'], $message]);
+        respond(['success' => true]);
+    }
+
     /* ============ الأقسام ============ */
     case 'addDepartment': {
         requireAdmin($pdo);
