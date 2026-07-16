@@ -250,7 +250,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [],
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null,
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'all', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -437,6 +437,12 @@ async function handleSendReminder(id){
   const res = await apiPost('sendClaimReminder', { id });
   if(res.error){ showToast(res.error); return; }
   showToast('تم إرسال التذكير عبر واتساب ✅');
+}
+async function viewReminderLog(claimId){
+  const res = await apiPost('claimReminderLog', { claimId });
+  state.claimReminderLog = res.log || [];
+  state.claimReminderLogFor = claimId;
+  render();
 }
 
 
@@ -1632,12 +1638,29 @@ function adminClaims(){
         <td style="white-space:nowrap;">
           ${remaining>0?`<button class="btn btn-ghost btn-sm" data-add-payment="${c.id}">دفعة</button>`:''}
           ${remaining>0 && c.debtorPhone?`<button class="btn btn-primary btn-sm" data-send-reminder="${c.id}">تذكير 📱</button>`:''}
+          <button class="btn btn-ghost btn-sm" data-view-reminder-log="${c.id}">📜 الأرشيف</button>
           <button class="btn btn-danger btn-sm" data-remove-claim="${c.id}">حذف</button>
         </td>
       </tr>`;
     }).join('')}
     </tbody></table>
-  </div>`}`;
+  </div>`}
+  ${state.claimReminderLogFor ? claimReminderLogModal() : ''}`;
+}
+
+function claimReminderLogModal(){
+  const log = state.claimReminderLog || [];
+  return `<div class="modal-bg" id="reminderLogModalBg"><div class="modal">
+    <h3 class="modal-title">📜 أرشيف رسائل التذكير</h3>
+    ${log.length===0?`<div class="empty">ما في رسائل تذكير مُرسلة لهاي المطالبة بعد</div>`:`
+    <div style="max-height:320px;overflow-y:auto;">
+      ${log.map(l=>`<div class="assignee-row">
+        <span>${fmtDateTime(l.sentAt)}</span>
+        ${l.success==1?'<span class="badge badge-success">تم الإرسال</span>':'<span class="badge badge-danger">فشل</span>'}
+      </div>`).join('')}
+    </div>`}
+    <button type="button" class="btn btn-ghost" id="closeReminderLogModal" style="width:100%;margin-top:14px;">إغلاق</button>
+  </div></div>`;
 }
 
 function claimForm(){
@@ -2034,6 +2057,11 @@ function attachAppEvents(){
   document.querySelectorAll('[data-send-reminder]').forEach(el=>{
     el.addEventListener('click', ()=> handleSendReminder(el.getAttribute('data-send-reminder')));
   });
+  document.querySelectorAll('[data-view-reminder-log]').forEach(el=>{
+    el.addEventListener('click', ()=> viewReminderLog(el.getAttribute('data-view-reminder-log')));
+  });
+  document.getElementById('closeReminderLogModal')?.addEventListener('click', ()=>{ state.claimReminderLogFor=null; render(); });
+  document.getElementById('reminderLogModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='reminderLogModalBg'){ state.claimReminderLogFor=null; render(); }});
   document.querySelectorAll('[data-reports-tab]').forEach(el=>{
     el.addEventListener('click', ()=>{ state.reportsTab = el.getAttribute('data-reports-tab'); render(); });
   });

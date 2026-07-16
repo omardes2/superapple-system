@@ -11,3 +11,12 @@ CREATE TABLE IF NOT EXISTS financial_claims (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ترقية إضافية: سجل تذكيرات كل مطالبة (تاريخ ووقت كل رسالة تذكير)
+CREATE TABLE IF NOT EXISTS claim_reminders (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  claim_id INT NOT NULL,
+  success TINYINT(1) NOT NULL DEFAULT 1,
+  sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (claim_id) REFERENCES financial_claims(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

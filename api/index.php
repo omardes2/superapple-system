@@ -550,8 +550,17 @@ switch ($action) {
         $dueTxt = $claim['due_date'] ? date('d/m/Y', strtotime($claim['due_date'])) : 'غير محدد';
         $message = "تذكير من سوبر آبل: لديك مبلغ مستحق قدره {$remaining} بخصوص \"{$claim['description']}\"، تاريخ الاستحقاق {$dueTxt}. يرجى التواصل لتسوية الحساب.";
         $result = sendWhatsAppCloud($pdo, $claim['debtor_phone'], $message);
+        $pdo->prepare("INSERT INTO claim_reminders (claim_id, success) VALUES (?, ?)")->execute([$claim['id'], $result['success'] ? 1 : 0]);
         if (!$result['success']) respond(['error' => $result['error']], 400);
         respond(['success' => true]);
+    }
+
+    case 'claimReminderLog': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $stmt = $pdo->prepare("SELECT success, sent_at AS sentAt FROM claim_reminders WHERE claim_id = ? ORDER BY sent_at DESC");
+        $stmt->execute([$b['claimId'] ?? 0]);
+        respond(['log' => $stmt->fetchAll()]);
     }
 
     /* ============ الأقسام ============ */
