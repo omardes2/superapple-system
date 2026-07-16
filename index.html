@@ -172,7 +172,7 @@
   .team-chat-widget{position:fixed;bottom:22px;left:22px;z-index:150;display:flex;flex-direction:column;align-items:flex-start;gap:12px;}
   .team-chat-bubble-btn{position:relative;width:56px;height:56px;border-radius:50%;background:var(--primary);color:#fff;font-size:24px;box-shadow:0 6px 20px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;flex:none;}
   .team-chat-bubble-btn:hover{transform:scale(1.05);}
-  .team-chat-dot{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--danger);border:2px solid var(--surface);}
+  .team-chat-dot{position:absolute;top:-3px;left:-3px;min-width:20px;height:20px;padding:0 4px;border-radius:10px;background:var(--danger);border:2px solid var(--surface);color:#fff;font-size:10.5px;font-weight:800;display:flex;align-items:center;justify-content:center;}
   .team-chat-panel{width:330px;max-width:calc(100vw - 44px);height:440px;max-height:70vh;background:var(--surface);border-radius:var(--radius);box-shadow:0 10px 40px rgba(0,0,0,0.3);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--border);}
   .team-chat-panel-head{background:var(--primary);color:#fff;padding:12px 16px;font-weight:800;font-size:13.5px;display:flex;align-items:center;justify-content:space-between;flex:none;}
   .team-chat-close-btn{background:rgba(255,255,255,0.15);color:#fff;width:26px;height:26px;border-radius:50%;font-size:13px;}
@@ -267,7 +267,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnread: false,
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0,
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'all', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -476,19 +476,29 @@ async function openWaThread(phone){
 }
 
 /* ---------------- TEAM CHAT ---------------- */
+let audioCtx = null;
+function unlockAudio(){
+  if(!audioCtx){
+    try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; }
+  }
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+}
+document.addEventListener('click', unlockAudio, { once:false });
+
 function playChatBeep(){
   try{
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.connect(g); g.connect(ctx.destination);
+    unlockAudio();
+    if(!audioCtx || audioCtx.state !== 'running') return;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
     o.type = 'sine';
-    o.frequency.setValueAtTime(880, ctx.currentTime);
-    o.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
-    g.gain.setValueAtTime(0.18, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    o.frequency.setValueAtTime(880, audioCtx.currentTime);
+    o.frequency.setValueAtTime(660, audioCtx.currentTime + 0.12);
+    g.gain.setValueAtTime(0.18, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
     o.start();
-    o.stop(ctx.currentTime + 0.35);
+    o.stop(audioCtx.currentTime + 0.35);
   }catch(e){ /* المتصفح رفض تشغيل الصوت (نادر) */ }
 }
 function scrollChatToBottom(){
@@ -503,9 +513,12 @@ async function loadTeamChat(silent){
   const newest = msgs.length ? msgs[msgs.length-1] : null;
   if(newest && newest.id > state.teamChatLastId){
     const isFirstLoad = state.teamChatLastId === 0;
-    if(!isFirstLoad && newest.userId !== state.currentUser.id){
-      playChatBeep();
-      if(!state.teamChatOpen) state.teamChatUnread = true;
+    if(!isFirstLoad){
+      const newOnes = msgs.filter(m=>m.id>state.teamChatLastId && m.userId!==state.currentUser.id);
+      if(newOnes.length>0){
+        playChatBeep();
+        if(!state.teamChatOpen) state.teamChatUnreadCount += newOnes.length;
+      }
     }
     state.teamChatLastId = newest.id;
   }
@@ -1822,7 +1835,7 @@ function teamChatWidget(){
     </div>` : ''}
     <button type="button" id="toggleTeamChatWidget" class="team-chat-bubble-btn">
       ${open?'✕':'💬'}
-      ${!open && state.teamChatUnread ? '<span class="team-chat-dot"></span>' : ''}
+      ${!open && state.teamChatUnreadCount>0 ? `<span class="team-chat-dot">${state.teamChatUnreadCount>9?'9+':state.teamChatUnreadCount}</span>` : ''}
     </button>
   </div>`;
 }
@@ -2389,7 +2402,7 @@ function attachAppEvents(){
   });
   document.getElementById('toggleTeamChatWidget')?.addEventListener('click', ()=>{
     state.teamChatOpen = !state.teamChatOpen;
-    if(state.teamChatOpen){ state.teamChatUnread = false; loadTeamChat(false); }
+    if(state.teamChatOpen){ state.teamChatUnreadCount = 0; loadTeamChat(false); }
     else render();
   });
   document.getElementById('closeTeamChatWidget')?.addEventListener('click', ()=>{
