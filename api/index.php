@@ -151,6 +151,11 @@ switch ($action) {
             $payload['users'] = $pdo->query("SELECT id, name, email, role, department, phone, work_start AS workStart, work_end AS workEnd, join_date AS joinDate, can_send_claims AS canSendClaims FROM users")->fetchAll();
 
             $payload['clients'] = $pdo->query("SELECT id, name, contact_name AS contactName, phone, email, notes, created_at AS createdAt FROM clients ORDER BY name")->fetchAll();
+            $payload['prompts'] = $pdo->query("
+                SELECT p.id, p.name, p.category, p.prompt_text AS promptText, p.image_path AS imagePath, p.created_by AS createdBy, u.name AS creatorName, p.created_at AS createdAt
+                FROM prompts p LEFT JOIN users u ON u.id = p.created_by
+                ORDER BY p.created_at DESC
+            ")->fetchAll();
             if ($isAdmin) {
                 $payload['departments'] = $pdo->query("SELECT id, name FROM departments ORDER BY name")->fetchAll();
             }
@@ -651,6 +656,50 @@ switch ($action) {
         $message = trim($b['message'] ?? '');
         if ($message === '') respond(['error' => 'اكتب رسالة'], 400);
         $pdo->prepare("INSERT INTO team_messages (user_id, message) VALUES (?, ?)")->execute([$user['id'], $message]);
+        respond(['success' => true]);
+    }
+
+    /* ============ مكتبة البرومبتات ============ */
+    case 'addPrompt': {
+        $user = requireLogin($pdo);
+        $name = trim($_POST['name'] ?? '');
+        $category = $_POST['category'] ?? 'other';
+        $promptText = trim($_POST['promptText'] ?? '');
+        if (!in_array($category, ['image', 'video', 'other'], true)) $category = 'other';
+        if ($name === '' || $promptText === '') respond(['error' => 'اسم البرومبت ونصه مطلوبان'], 400);
+
+        $imagePath = null;
+        if (!empty($_FILES['image']['name']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
+            $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'];
+            $mime = @mime_content_type($_FILES['image']['tmp_name']);
+            if (isset($allowed[$mime]) && $_FILES['image']['size'] <= 6 * 1024 * 1024) {
+                $destDir = __DIR__ . '/../uploads/prompts/';
+                if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
+                $filename = 'prompt_' . uniqid() . '.' . $allowed[$mime];
+                if (@move_uploaded_file($_FILES['image']['tmp_name'], $destDir . $filename)) {
+                    $imagePath = 'uploads/prompts/' . $filename;
+                }
+            }
+        }
+
+        $stmt = $pdo->prepare("INSERT INTO prompts (name, category, prompt_text, image_path, created_by) VALUES (?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $category, $promptText, $imagePath, $user['id']]);
+        respond(['success' => true]);
+    }
+
+    case 'removePrompt': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $stmt = $pdo->prepare("SELECT created_by, image_path FROM prompts WHERE id = ?");
+        $stmt->execute([$b['id'] ?? 0]);
+        $p = $stmt->fetch();
+        if (!$p) respond(['error' => 'البرومبت غير موجود'], 404);
+        if ($user['role'] !== 'admin' && $p['created_by'] != $user['id']) respond(['error' => 'غير مسموح'], 403);
+        $pdo->prepare("DELETE FROM prompts WHERE id = ?")->execute([$b['id']]);
+        if ($p['image_path']) {
+            $full = __DIR__ . '/../' . $p['image_path'];
+            if (file_exists($full)) @unlink($full);
+        }
         respond(['success' => true]);
     }
 

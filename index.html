@@ -188,6 +188,9 @@
   .task-card-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid var(--border);margin-top:auto;flex-wrap:wrap;}
   .task-assignees-mini{font-size:11.5px;color:var(--text-faint);}
   .task-card-btn{padding:5px 11px !important;font-size:11px !important;}
+  .prompt-card{display:flex;flex-direction:column;}
+  .prompt-card-img{width:100%;height:140px;object-fit:cover;border-radius:var(--radius-sm);margin-bottom:10px;background:var(--surface-2);}
+  .prompt-card-text{font-size:12px;color:var(--text-muted);line-height:1.7;background:var(--surface-2);border-radius:var(--radius-sm);padding:10px;max-height:110px;overflow-y:auto;white-space:pre-wrap;flex:1;}
   .task-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
   .assignee-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px dashed var(--border);font-size:13px;}
   .check{width:20px;height:20px;border-radius:6px;border:2px solid var(--border);flex:none;display:flex;align-items:center;justify-content:center;cursor:pointer;}
@@ -277,7 +280,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0,
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false,
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'all', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -296,6 +299,12 @@ async function apiPost(action, body){
       method:'POST', credentials:'same-origin',
       headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})
     });
+    return await res.json();
+  }catch(e){ return { error: 'تعذر الاتصال بالسيرفر' }; }
+}
+async function apiUpload(action, formData){
+  try{
+    const res = await fetch(`${API}?action=${action}`, { method:'POST', credentials:'same-origin', body: formData });
     return await res.json();
   }catch(e){ return { error: 'تعذر الاتصال بالسيرفر' }; }
 }
@@ -321,6 +330,7 @@ function applyBootstrap(data){
   state.clients = data.clients || [];
   state.departments = data.departments || [];
   state.claims = data.claims || [];
+  state.prompts = data.prompts || [];
   state.leaveRequests = data.leaveRequests || [];
   state.tasks = (data.tasks || []).map(t => ({ ...t, assignees: (t.assignees||[]).map(a => ({ ...a, done: !!a.done })) }));
   state.attendance = data.attendance || [];
@@ -465,6 +475,43 @@ async function handleSendReminder(id){
   if(res.error){ showToast(res.error); return; }
   showToast('تم إرسال التذكير عبر واتساب ✅');
 }
+
+/* ---------------- PROMPTS LIBRARY ---------------- */
+async function handleAddPrompt(e){
+  e.preventDefault();
+  const f = e.target;
+  const fd = new FormData();
+  fd.append('name', f.name.value.trim());
+  fd.append('category', f.category.value);
+  fd.append('promptText', f.promptText.value.trim());
+  if(f.image.files[0]) fd.append('image', f.image.files[0]);
+  const res = await apiUpload('addPrompt', fd);
+  if(res.error){ showToast(res.error); return; }
+  state.promptFormOpen = false;
+  await refresh();
+  showToast('تمت إضافة البرومبت للمكتبة');
+}
+async function handleRemovePrompt(id){
+  if(!confirm('هل أنت متأكد من حذف هذا البرومبت؟')) return;
+  const res = await apiPost('removePrompt', { id });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  showToast('تم حذف البرومبت');
+}
+function handleCopyPrompt(id){
+  const el = document.getElementById('promptText-'+id);
+  if(!el) return;
+  const text = el.innerText;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>showToast('تم نسخ البرومبت 📋')).catch(()=>showToast('تعذر النسخ'));
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); showToast('تم نسخ البرومبت 📋'); }catch(e){ showToast('تعذر النسخ'); }
+    document.body.removeChild(ta);
+  }
+}
+
 async function viewReminderLog(claimId){
   const res = await apiPost('claimReminderLog', { claimId });
   state.claimReminderLog = res.log || [];
@@ -937,6 +984,7 @@ const ICONS = {
   departments: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`,
   claims: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 012-2h9l5 5v9a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"/><path d="M14 4v5h5"/><path d="M8 13h8M8 17h5"/></svg>`,
   teamchat: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v10H8l-4 4V5z"/><path d="M8 9h8M8 12h5"/></svg>`,
+  prompts: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>`,
   attendance: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`,
   rewards: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v5a4 4 0 01-8 0V4z"/><path d="M8 6H5a2 2 0 002 4M16 6h3a2 2 0 01-2 4"/><path d="M12 13v3"/><path d="M9 20h6M10 16.5h4v3.5h-4z"/></svg>`,
   reports: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M9 13v4M12 11v6M15 15v2"/></svg>`,
@@ -981,6 +1029,7 @@ function renderAdmin(){
     {key:'claims', icon:'claims', label:'المطالبات المالية'},
     {key:'whatsapp', icon:'whatsapp', label:'ربط واتساب'},
     {key:'inbox', icon:'notifications', label:'صندوق الرسائل'},
+    {key:'prompts', icon:'prompts', label:'مكتبة البرومبتات'},
     {key:'notifications', icon:'notifications', label:'الإشعارات'},
   ];
   return `
@@ -1015,14 +1064,14 @@ function renderAdmin(){
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', notifications:'سجل الإشعارات'}; }
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', prompts:'مكتبة البرومبتات', notifications:'سجل الإشعارات'}; }
 function adminSubs(){ return {
   dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
   tasks:'إنشاء متابعة المهام الفردية والمشتركة', clients:'عملاء الوكالة وبيانات التواصل معهم', departments:'أقسام الشركة وتوزيع الموظفين عليها',
   attendance:'حالة الحضور والانصراف، ومراجعة طلبات الإجازة',
   rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي',
   claims:'متابعة الحسابات والديون المستحقة على العملاء وإرسال تذكيرات',
-  whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', inbox:'كل الرسائل الصادرة والواردة عبر واتساب في مكان واحد', notifications:'كل التنبيهات المُرسلة للفريق'
+  whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', inbox:'كل الرسائل الصادرة والواردة عبر واتساب في مكان واحد', prompts:'مكتبة برومبتات مشتركة لكل الفريق', notifications:'كل التنبيهات المُرسلة للفريق'
 }; }
 
 function adminTabContent(){
@@ -1038,6 +1087,7 @@ function adminTabContent(){
     case 'claims': return adminClaims();
     case 'whatsapp': return adminWhatsapp();
     case 'inbox': return adminInbox();
+    case 'prompts': return promptsLibraryPage();
     case 'notifications': return notificationsList(true);
   }
 }
@@ -1916,6 +1966,62 @@ function teamChatWidget(){
   </div>`;
 }
 
+function promptsLibraryPage(){
+  const cats = {image:['🖼️ صور','badge-primary'], video:['🎬 فيديو','badge-inprogress'], other:['📄 أخرى','badge-muted']};
+  const filter = state.promptFilter || 'all';
+  const all = state.prompts || [];
+  const list = filter==='all' ? all : all.filter(p=>p.category===filter);
+  const me = state.currentUser;
+
+  return `
+  <div class="section-title" style="margin-bottom:14px;">مكتبة البرومبتات (${all.length}) ${state.promptFormOpen?'':'<button class="btn btn-primary btn-sm" id="openPromptForm">+ إضافة برومبت</button>'}</div>
+  ${state.promptFormOpen ? promptForm() : ''}
+  <div class="subtab-nav">
+    ${[{k:'all',l:'الكل'},{k:'image',l:'🖼️ صور'},{k:'video',l:'🎬 فيديو'},{k:'other',l:'📄 أخرى'}].map(t=>`<button class="subtab-btn ${filter===t.k?'active':''}" data-prompt-filter="${t.k}">${t.l}</button>`).join('')}
+  </div>
+  ${list.length===0?`<div class="card"><div class="empty">لا توجد برومبتات بهذا التصنيف بعد.</div></div>`:`
+  <div class="tasks-grid">
+    ${list.map(p=>{
+      const [label,cls] = cats[p.category] || cats.other;
+      const canDelete = me.role==='admin' || p.createdBy===me.id;
+      return `<div class="card prompt-card">
+        ${p.imagePath?`<img src="${p.imagePath}" class="prompt-card-img" alt="${p.name}"/>`:''}
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">
+          <b style="font-size:13.5px;">${p.name}</b>
+          <span class="badge ${cls}">${label}</span>
+        </div>
+        <div class="prompt-card-text" id="promptText-${p.id}">${p.promptText}</div>
+        <div style="font-size:10.5px;color:var(--text-faint);margin:8px 0;">بواسطة ${p.creatorName||'—'} · ${fmtDate(p.createdAt)}</div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-primary btn-sm task-card-btn" data-copy-prompt="${p.id}">نسخ</button>
+          ${canDelete?`<button class="btn btn-danger btn-sm task-card-btn" data-remove-prompt="${p.id}">حذف</button>`:''}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`}`;
+}
+
+function promptForm(){
+  return `<div class="card" style="margin-bottom:16px;border-color:var(--accent);">
+    <div class="section-title">برومبت جديد <button type="button" class="btn btn-ghost btn-sm" id="closePromptForm">إغلاق ✕</button></div>
+    <form id="promptForm">
+      <div class="form-row">
+        <div class="field"><label>اسم البرومبت</label><input name="name" required/></div>
+        <div class="field"><label>التصنيف</label>
+          <select name="category">
+            <option value="image">🖼️ صور</option>
+            <option value="video">🎬 فيديو</option>
+            <option value="other">📄 أخرى</option>
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>نص البرومبت</label><textarea name="promptText" rows="4" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;font-size:16px;" required></textarea></div>
+      <div class="field"><label>صورة توضيحية (اختياري)</label><input type="file" name="image" accept="image/*"/></div>
+      <button type="submit" class="btn btn-primary" style="width:100%;">إضافة البرومبت</button>
+    </form>
+  </div>`;
+}
+
 function adminInbox(){
   const convos = state.waConversations || [];
   const activePhone = state.waActivePhone;
@@ -2080,6 +2186,7 @@ function renderEmployee(){
     {key:'points', icon:'rewards', label:'نقاطي'},
     {key:'report', icon:'reports', label:'تقريري الشهري'},
     ...(state.currentUser.canSendClaims ? [{key:'claims', icon:'claims', label:'تذكيرات المطالبات'}] : []),
+    {key:'prompts', icon:'prompts', label:'مكتبة البرومبتات'},
     {key:'notifications', icon:'notifications', label:'الإشعارات'},
   ];
   return `
@@ -2108,11 +2215,11 @@ function renderEmployee(){
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي وإجازاتي', points:'نقاطي وترتيبي', report:'تقريري الشهري', claims:'تذكيرات المطالبات المالية', notifications:'الإشعارات'}; }
+function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي وإجازاتي', points:'نقاطي وترتيبي', report:'تقريري الشهري', claims:'تذكيرات المطالبات المالية', prompts:'مكتبة البرومبتات', notifications:'الإشعارات'}; }
 function empSubs(){ return {
   dashboard:'نظرة سريعة على يومك', tasks:'المهام المسندة لك بشكل فردي أو مشترك',
   attendance:'سجل حضورك وانصرافك، وطلب إجازة جديدة', points:'رصيدك من النقاط وترتيبك بين الفريق',
-  report:'أداؤك خلال الشهر الحالي', claims:'إضافة مطالبات، تسجيل دفعات، وإرسال تذكيرات واتساب', notifications:'كل التنبيهات الخاصة بك'
+  report:'أداؤك خلال الشهر الحالي', claims:'إضافة مطالبات، تسجيل دفعات، وإرسال تذكيرات واتساب', prompts:'مكتبة برومبتات مشتركة لكل الفريق', notifications:'كل التنبيهات الخاصة بك'
 }; }
 
 function empTabContent(){
@@ -2123,6 +2230,7 @@ function empTabContent(){
     case 'points': return empPoints();
     case 'report': return empReport();
     case 'claims': return state.currentUser.canSendClaims ? adminClaims() : empClaims();
+    case 'prompts': return promptsLibraryPage();
     case 'notifications': return notificationsList(false);
   }
 }
@@ -2365,6 +2473,18 @@ function attachAppEvents(){
   });
   document.getElementById('closeReminderLogModal')?.addEventListener('click', ()=>{ state.claimReminderLogFor=null; render(); });
   document.getElementById('reminderLogModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='reminderLogModalBg'){ state.claimReminderLogFor=null; render(); }});
+  document.getElementById('openPromptForm')?.addEventListener('click', ()=>{ state.promptFormOpen=true; render(); });
+  document.getElementById('closePromptForm')?.addEventListener('click', ()=>{ state.promptFormOpen=false; render(); });
+  document.getElementById('promptForm')?.addEventListener('submit', handleAddPrompt);
+  document.querySelectorAll('[data-remove-prompt]').forEach(el=>{
+    el.addEventListener('click', ()=> handleRemovePrompt(el.getAttribute('data-remove-prompt')));
+  });
+  document.querySelectorAll('[data-copy-prompt]').forEach(el=>{
+    el.addEventListener('click', ()=> handleCopyPrompt(el.getAttribute('data-copy-prompt')));
+  });
+  document.querySelectorAll('[data-prompt-filter]').forEach(el=>{
+    el.addEventListener('click', ()=>{ state.promptFilter = el.getAttribute('data-prompt-filter'); render(); });
+  });
   document.querySelectorAll('[data-open-thread]').forEach(el=>{
     el.addEventListener('click', ()=> openWaThread(el.getAttribute('data-open-thread')));
   });
