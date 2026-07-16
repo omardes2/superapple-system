@@ -1139,11 +1139,12 @@ function adminEmployees(){
   <div class="card">
     <div class="section-title">قائمة الموظفين (${employees.length}) <button class="btn btn-primary btn-sm" id="openEmpModal">+ إضافة موظف</button></div>
     ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد. اضغط "إضافة موظف" للبدء.</div>`:`
-    <table><thead><tr><th>الاسم</th><th>البريد الإلكتروني</th><th>واتساب</th><th>القسم</th><th>الدوام</th><th>النقاط</th><th></th></tr></thead><tbody>
+    <table><thead><tr><th>الاسم</th><th>البريد الإلكتروني</th><th>واتساب</th><th>القسم</th><th>الدوام</th><th>النقاط</th><th>إرسال تذكيرات المطالبات</th><th></th></tr></thead><tbody>
     ${employees.map(e=>`
       <tr><td>${e.name}</td><td style="color:var(--text-muted)">${e.email}</td><td style="color:var(--text-muted)" dir="ltr">${e.phone||'—'}</td><td>${e.department}</td>
       <td dir="ltr" style="font-size:11.5px;">${(e.workStart||'').slice(0,5)} – ${(e.workEnd||'').slice(0,5)} <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;margin-right:4px;" data-edit-schedule="${e.id}|${e.workStart}|${e.workEnd}">تعديل</button></td>
       <td><span class="badge badge-primary">${userPoints(e.id)}</span></td>
+      <td style="text-align:center;"><input type="checkbox" data-toggle-permission="${e.id}" ${e.canSendClaims?'checked':''} style="width:18px;height:18px;cursor:pointer;"/></td>
       <td><button class="btn btn-danger btn-sm" data-remove-emp="${e.id}">حذف</button></td></tr>`).join('')}
     </tbody></table>`}
   </div>`;
@@ -1616,6 +1617,32 @@ function reportsClients(){
   </div>`;
 }
 
+function empClaims(){
+  const claims = (state.claims||[]).filter(c=>Math.max(0, c.amount-c.paidAmount) > 0);
+  const claimStatusMap = {paid:['مدفوعة','badge-success'], due:['مستحقة','badge-warning'], overdue:['متأخرة','badge-danger']};
+  return `
+  <div class="card">
+    <div class="section-title">المطالبات المستحقة (${claims.length})</div>
+    ${claims.length===0?`<div class="empty">لا توجد مطالبات مستحقة حاليًا 🎉</div>`:`
+    <div style="overflow-x:auto;">
+    <table><thead><tr><th>المدين</th><th>الوصف</th><th>المتبقي</th><th>الاستحقاق</th><th>الحالة</th><th></th></tr></thead><tbody>
+    ${claims.map(c=>{
+      const remaining = Math.round((c.amount-c.paidAmount)*100)/100;
+      const [label,cls] = claimStatusMap[claimStatus(c)];
+      return `<tr>
+        <td>${c.debtorName}${c.debtorPhone?`<div style="font-size:10.5px;color:var(--text-faint);" dir="ltr">${c.debtorPhone}</div>`:''}</td>
+        <td style="font-size:11.5px;color:var(--text-muted);">${c.description||'—'}</td>
+        <td style="font-weight:700;color:var(--danger);">${remaining.toLocaleString()}</td>
+        <td style="font-size:11.5px;">${c.dueDate?fmtDate(c.dueDate):'—'}</td>
+        <td><span class="badge ${cls}">${label}</span></td>
+        <td>${c.debtorPhone?`<button class="btn btn-primary btn-sm" data-send-reminder="${c.id}" style="width:auto;">📱 تذكير</button>`:'<span style="font-size:11px;color:var(--text-faint);">بدون رقم</span>'}</td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>
+    </div>`}
+  </div>`;
+}
+
 function claimStatus(c){
   const remaining = Math.round((c.amount - c.paidAmount)*100)/100;
   if(remaining<=0) return 'paid';
@@ -1865,6 +1892,7 @@ function renderEmployee(){
     {key:'attendance', icon:'attendance', label:'دوامي وإجازاتي'},
     {key:'points', icon:'rewards', label:'نقاطي'},
     {key:'report', icon:'reports', label:'تقريري الشهري'},
+    ...(state.currentUser.canSendClaims ? [{key:'claims', icon:'claims', label:'تذكيرات المطالبات'}] : []),
     {key:'notifications', icon:'notifications', label:'الإشعارات'},
   ];
   return `
@@ -1892,11 +1920,11 @@ function renderEmployee(){
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي وإجازاتي', points:'نقاطي وترتيبي', report:'تقريري الشهري', notifications:'الإشعارات'}; }
+function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي وإجازاتي', points:'نقاطي وترتيبي', report:'تقريري الشهري', claims:'تذكيرات المطالبات المالية', notifications:'الإشعارات'}; }
 function empSubs(){ return {
   dashboard:'نظرة سريعة على يومك', tasks:'المهام المسندة لك بشكل فردي أو مشترك',
   attendance:'سجل حضورك وانصرافك، وطلب إجازة جديدة', points:'رصيدك من النقاط وترتيبك بين الفريق',
-  report:'أداؤك خلال الشهر الحالي', notifications:'كل التنبيهات الخاصة بك'
+  report:'أداؤك خلال الشهر الحالي', claims:'إرسال تذكيرات واتساب للعملاء المتأخرين بالسداد', notifications:'كل التنبيهات الخاصة بك'
 }; }
 
 function empTabContent(){
@@ -1906,6 +1934,7 @@ function empTabContent(){
     case 'attendance': return empAttendance();
     case 'points': return empPoints();
     case 'report': return empReport();
+    case 'claims': return empClaims();
     case 'notifications': return notificationsList(false);
   }
 }
@@ -2099,6 +2128,14 @@ function attachAppEvents(){
 
   document.querySelectorAll('[data-edit-schedule]').forEach(el=>{
     el.addEventListener('click', ()=>{ state.scheduleModal = el.getAttribute('data-edit-schedule'); render(); });
+  });
+  document.querySelectorAll('[data-toggle-permission]').forEach(el=>{
+    el.addEventListener('change', async ()=>{
+      const id = el.getAttribute('data-toggle-permission');
+      await apiPost('toggleEmployeePermission', { id, value: el.checked });
+      await refresh();
+      showToast(el.checked ? 'تم منح الصلاحية' : 'تم إلغاء الصلاحية');
+    });
   });
   document.getElementById('closeScheduleModal')?.addEventListener('click', ()=>{ state.scheduleModal=null; render(); });
   document.getElementById('scheduleModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='scheduleModalBg'){ state.scheduleModal=null; render(); }});

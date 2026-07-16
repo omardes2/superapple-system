@@ -23,10 +23,11 @@ function bodyInput() {
 
 function currentUserRow($pdo) {
     if (empty($_SESSION['user_id'])) return null;
-    $stmt = $pdo->prepare("SELECT id, name, email, role, department, phone, work_start AS workStart, work_end AS workEnd, join_date AS joinDate FROM users WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT id, name, email, role, department, phone, work_start AS workStart, work_end AS workEnd, join_date AS joinDate, can_send_claims AS canSendClaims FROM users WHERE id = ?");
     $stmt->execute([$_SESSION['user_id']]);
     $u = $stmt->fetch();
     if ($u) {
+        $u['canSendClaims'] = (bool) $u['canSendClaims'];
         $stmt2 = $pdo->prepare("SELECT COUNT(*) c FROM webauthn_credentials WHERE user_id = ?");
         $stmt2->execute([$u['id']]);
         $u['hasWebauthn'] = (bool) $stmt2->fetch()['c'];
@@ -119,11 +120,13 @@ switch ($action) {
         if ($currentUser) {
             $isAdmin = $currentUser['role'] === 'admin';
 
-            $payload['users'] = $pdo->query("SELECT id, name, email, role, department, phone, work_start AS workStart, work_end AS workEnd, join_date AS joinDate FROM users")->fetchAll();
+            $payload['users'] = $pdo->query("SELECT id, name, email, role, department, phone, work_start AS workStart, work_end AS workEnd, join_date AS joinDate, can_send_claims AS canSendClaims FROM users")->fetchAll();
 
             $payload['clients'] = $pdo->query("SELECT id, name, contact_name AS contactName, phone, email, notes, created_at AS createdAt FROM clients ORDER BY name")->fetchAll();
             if ($isAdmin) {
                 $payload['departments'] = $pdo->query("SELECT id, name FROM departments ORDER BY name")->fetchAll();
+            }
+            if ($isAdmin || $currentUser['canSendClaims']) {
                 $payload['claims'] = $pdo->query("SELECT id, debtor_name AS debtorName, debtor_phone AS debtorPhone, amount, paid_amount AS paidAmount, description, due_date AS dueDate, created_at AS createdAt FROM financial_claims ORDER BY due_date IS NULL, due_date ASC")->fetchAll();
             }
 
@@ -236,6 +239,14 @@ switch ($action) {
         $b = bodyInput();
         $pdo->prepare("UPDATE users SET work_start = ?, work_end = ? WHERE id = ? AND role = 'employee'")
             ->execute([$b['workStart'] ?: '08:00', $b['workEnd'] ?: '16:00', $b['id'] ?? 0]);
+        respond(['success' => true]);
+    }
+
+    case 'toggleEmployeePermission': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("UPDATE users SET can_send_claims = ? WHERE id = ? AND role = 'employee'")
+            ->execute([!empty($b['value']) ? 1 : 0, $b['id'] ?? 0]);
         respond(['success' => true]);
     }
 
@@ -570,7 +581,8 @@ switch ($action) {
     }
 
     case 'sendClaimReminder': {
-        requireAdmin($pdo);
+        $user = requireLogin($pdo);
+        if ($user['role'] !== 'admin' && !$user['canSendClaims']) respond(['error' => 'ما عندك صلاحية لإرسال تذكيرات المطالبات'], 403);
         $b = bodyInput();
         $stmt = $pdo->prepare("SELECT * FROM financial_claims WHERE id = ?");
         $stmt->execute([$b['id'] ?? 0]);
