@@ -224,6 +224,14 @@
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:12px 20px;border-radius:100px;font-size:13.5px;font-weight:600;z-index:100;box-shadow:var(--shadow);}
   .rank-pill{width:26px;height:26px;border-radius:50%;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:var(--text-muted);}
 
+  .today-board{display:flex;flex-direction:column;gap:8px;}
+  .today-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:12px 14px;border-radius:var(--radius-sm);background:var(--surface-2);}
+  .today-row-name{display:flex;flex-direction:column;gap:2px;min-width:130px;}
+  .today-row-name b{font-size:13px;}
+  .today-row-schedule{font-size:11px;color:var(--text-faint);}
+  .today-row-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .today-time-chip{font-size:11.5px;background:var(--surface);padding:4px 9px;border-radius:100px;border:1px solid var(--border);font-weight:700;}
+
   /* ===== موبايل: قائمة منسدلة بدل السايدبار الثابت ===== */
   @media(max-width:860px){
     .shell{flex-direction:column;}
@@ -1506,6 +1514,8 @@ function adminAttendance(){
   const pending = leaves.filter(l=>l.status==='pending');
   const reviewed = leaves.filter(l=>l.status!=='pending').slice(0,10);
   const leaveStatusMap = {pending:['قيد المراجعة','badge-warning'], approved:['موافَق عليها','badge-success'], rejected:['مرفوضة','badge-danger']};
+  const today = todayStr();
+
   return `
   <div class="card" style="margin-bottom:16px;">
     <div class="section-title">طلبات الإجازة ${pending.length>0?`<span class="badge badge-warning">${pending.length} بانتظار المراجعة</span>`:''}</div>
@@ -1520,19 +1530,53 @@ function adminAttendance(){
     }).join('')}
     </tbody></table>`}
   </div>
-  <div class="card">
-    <div class="section-title">سجل الحضور (آخر الأيام المسجّلة) <span style="font-size:11px;color:var(--text-faint);font-weight:600;">الساعات المطلوبة محسوبة حسب دوام كل موظف</span></div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="section-title">📍 حالة اليوم — ${fmtDate(today)}</div>
     ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد</div>`:`
-    <table><thead><tr><th>الموظف</th><th>الدوام المطلوب</th>${dates.map(d=>`<th>${fmtDate(d)}</th>`).join('')}</tr></thead><tbody>
-    ${employees.map(e=>`<tr><td>${e.name}</td><td style="font-size:11px;color:var(--text-faint);" dir="ltr">${expectedHours(e)}س</td>${dates.map(d=>{
+    <div class="today-board">
+      ${employees.map(e=>{
+        const r = state.attendance.find(a=>a.userId===e.id && a.date===today);
+        const exp = expectedHours(e);
+        const schedule = `${(e.workStart||'').slice(0,5)} – ${(e.workEnd||'').slice(0,5)}`;
+        let rightSide;
+        if(!r){
+          rightSide = `<span class="badge badge-muted">لم يسجّل بعد</span><button class="btn btn-ghost btn-sm" data-mark-absent="${e.id}|${today}">تعليم غياب</button>`;
+        } else {
+          const worked = r.checkOut ? hoursDiff(r.checkIn, r.checkOut) : null;
+          rightSide = `
+            ${statusBadge(r.status)}
+            <span class="today-time-chip">🟢 ${(r.checkIn||'').slice(0,5)}</span>
+            ${r.checkOut?`<span class="today-time-chip">🔴 ${r.checkOut.slice(0,5)}</span>`:`<span class="today-time-chip" style="color:var(--warning);">🟡 بالدوام الآن</span>`}
+            ${worked!==null?`<span style="font-weight:800;font-size:12px;color:${worked>=exp?'var(--success)':'var(--warning)'};">${worked}س/${exp}س</span>`:''}
+          `;
+        }
+        return `<div class="today-row">
+          <div class="today-row-name"><b>${e.name}</b><span class="today-row-schedule" dir="ltr">${schedule}</span></div>
+          <div class="today-row-right">${rightSide}</div>
+        </div>`;
+      }).join('')}
+    </div>`}
+  </div>
+
+  <div class="card">
+    <div class="section-title">سجل الحضور — آخر الأيام <span style="font-size:11px;color:var(--text-faint);font-weight:600;">كل خانة: وقت الدخول ← وقت الخروج</span></div>
+    ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد</div>`:`
+    <div style="overflow-x:auto;">
+    <table><thead><tr><th>الموظف</th><th>الدوام المعتمد</th>${dates.map(d=>`<th>${fmtDate(d)}</th>`).join('')}</tr></thead><tbody>
+    ${employees.map(e=>`<tr><td>${e.name}</td><td style="font-size:11px;color:var(--text-faint);" dir="ltr">${(e.workStart||'').slice(0,5)}–${(e.workEnd||'').slice(0,5)}</td>${dates.map(d=>{
       const r = state.attendance.find(a=>a.userId===e.id && a.date===d);
       if(!r) return `<td><button class="btn btn-ghost btn-sm" data-mark-absent="${e.id}|${d}" style="padding:4px 8px;font-size:11px;">تعليم غياب</button></td>`;
       const worked = hoursDiff(r.checkIn, r.checkOut);
       const exp = expectedHours(e);
-      const hoursLine = r.checkOut ? `<div style="font-size:10.5px;margin-top:3px;color:${worked>=exp?'var(--success)':'var(--warning)'};">${worked}س${worked<exp?' ⚠️':''}</div>` : '';
-      return `<td>${statusBadge(r.status)}${hoursLine}</td>`;
+      return `<td>
+        ${statusBadge(r.status)}
+        <div style="font-size:10.5px;margin-top:4px;color:var(--text-muted);" dir="ltr">${(r.checkIn||'').slice(0,5)} ← ${r.checkOut?r.checkOut.slice(0,5):'…'}</div>
+        ${r.checkOut?`<div style="font-size:10px;font-weight:700;color:${worked>=exp?'var(--success)':'var(--warning)'};">${worked}س${worked<exp?' ⚠️':''}</div>`:''}
+      </td>`;
     }).join('')}</tr>`).join('')}
-    </tbody></table>`}
+    </tbody></table>
+    </div>`}
   </div>`;
 }
 
