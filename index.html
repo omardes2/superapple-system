@@ -1623,6 +1623,7 @@ function adminClaims(){
   ${state.claimModal ? claimForm() : ''}
   ${claims.length===0?`<div class="card"><div class="empty">لا توجد مطالبات مالية بعد.</div></div>`:`
   <div class="card">
+    <div style="overflow-x:auto;">
     <table><thead><tr><th>المدين</th><th>الوصف</th><th>المبلغ</th><th>المدفوع</th><th>المتبقي</th><th>الاستحقاق</th><th>الحالة</th><th></th></tr></thead><tbody>
     ${claims.map(c=>{
       const remaining = Math.round((c.amount-c.paidAmount)*100)/100;
@@ -1635,15 +1636,18 @@ function adminClaims(){
         <td style="font-weight:700;color:${remaining>0?'var(--danger)':'var(--success)'};">${remaining.toLocaleString()}</td>
         <td style="font-size:11.5px;">${c.dueDate?fmtDate(c.dueDate):'—'}</td>
         <td><span class="badge ${cls}">${label}</span></td>
-        <td style="white-space:nowrap;">
-          ${remaining>0?`<button class="btn btn-ghost btn-sm" data-add-payment="${c.id}">دفعة</button>`:''}
-          ${remaining>0 && c.debtorPhone?`<button class="btn btn-primary btn-sm" data-send-reminder="${c.id}">تذكير 📱</button>`:''}
-          <button class="btn btn-ghost btn-sm" data-view-reminder-log="${c.id}">📜 الأرشيف</button>
-          <button class="btn btn-danger btn-sm" data-remove-claim="${c.id}">حذف</button>
+        <td style="min-width:130px;">
+          <div style="display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-start;">
+            ${remaining>0?`<button class="btn btn-ghost btn-sm" data-add-payment="${c.id}">دفعة</button>`:''}
+            ${remaining>0 && c.debtorPhone?`<button class="btn btn-primary btn-sm" data-send-reminder="${c.id}">تذكير 📱</button>`:''}
+            <button class="btn btn-ghost btn-sm" data-view-reminder-log="${c.id}">📜 الأرشيف</button>
+            <button class="btn btn-danger btn-sm" data-remove-claim="${c.id}">حذف</button>
+          </div>
         </td>
       </tr>`;
     }).join('')}
     </tbody></table>
+    </div>
   </div>`}
   ${state.claimReminderLogFor ? claimReminderLogModal() : ''}`;
 }
