@@ -252,7 +252,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null,
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false,
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'all', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -447,6 +447,7 @@ async function viewReminderLog(claimId){
   render();
 }
 async function loadWaConversations(){
+  state.waConversationsLoaded = true;
   const res = await apiPost('waConversations', {});
   state.waConversations = res.conversations || [];
   render();
@@ -2086,6 +2087,7 @@ function attachAppEvents(){
     el.addEventListener('click', ()=>{
       const tab = el.getAttribute('data-tab');
       if(state.currentUser.role==='admin') state.adminTab = tab; else state.empTab = tab;
+      if(tab==='inbox') state.waConversationsLoaded = false;
       state.mobileMenuOpen = false;
       render();
     });
@@ -2142,7 +2144,7 @@ function attachAppEvents(){
     el.addEventListener('click', ()=> openWaThread(el.getAttribute('data-open-thread')));
   });
   document.getElementById('closeWaThread')?.addEventListener('click', ()=>{ state.waActivePhone=null; state.waThread=[]; render(); });
-  if(state.currentUser?.role==='admin' && state.adminTab==='inbox' && !state.waActivePhone && state.waConversations.length===0){
+  if(state.currentUser?.role==='admin' && state.adminTab==='inbox' && !state.waActivePhone && !state.waConversationsLoaded){
     loadWaConversations();
   }
   document.querySelectorAll('[data-reports-tab]').forEach(el=>{
