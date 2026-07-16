@@ -1139,7 +1139,7 @@ function adminEmployees(){
   <div class="card">
     <div class="section-title">قائمة الموظفين (${employees.length}) <button class="btn btn-primary btn-sm" id="openEmpModal">+ إضافة موظف</button></div>
     ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد. اضغط "إضافة موظف" للبدء.</div>`:`
-    <table><thead><tr><th>الاسم</th><th>البريد الإلكتروني</th><th>واتساب</th><th>القسم</th><th>الدوام</th><th>النقاط</th><th>إرسال تذكيرات المطالبات</th><th></th></tr></thead><tbody>
+    <table><thead><tr><th>الاسم</th><th>البريد الإلكتروني</th><th>واتساب</th><th>القسم</th><th>الدوام</th><th>النقاط</th><th>الوصول لصفحة المطالبات المالية</th><th></th></tr></thead><tbody>
     ${employees.map(e=>`
       <tr><td>${e.name}</td><td style="color:var(--text-muted)">${e.email}</td><td style="color:var(--text-muted)" dir="ltr">${e.phone||'—'}</td><td>${e.department}</td>
       <td dir="ltr" style="font-size:11.5px;">${(e.workStart||'').slice(0,5)} – ${(e.workEnd||'').slice(0,5)} <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;margin-right:4px;" data-edit-schedule="${e.id}|${e.workStart}|${e.workEnd}">تعديل</button></td>
@@ -1924,7 +1924,7 @@ function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.s
 function empSubs(){ return {
   dashboard:'نظرة سريعة على يومك', tasks:'المهام المسندة لك بشكل فردي أو مشترك',
   attendance:'سجل حضورك وانصرافك، وطلب إجازة جديدة', points:'رصيدك من النقاط وترتيبك بين الفريق',
-  report:'أداؤك خلال الشهر الحالي', claims:'إرسال تذكيرات واتساب للعملاء المتأخرين بالسداد', notifications:'كل التنبيهات الخاصة بك'
+  report:'أداؤك خلال الشهر الحالي', claims:'إضافة مطالبات، تسجيل دفعات، وإرسال تذكيرات واتساب', notifications:'كل التنبيهات الخاصة بك'
 }; }
 
 function empTabContent(){
@@ -1934,7 +1934,7 @@ function empTabContent(){
     case 'attendance': return empAttendance();
     case 'points': return empPoints();
     case 'report': return empReport();
-    case 'claims': return empClaims();
+    case 'claims': return state.currentUser.canSendClaims ? adminClaims() : empClaims();
     case 'notifications': return notificationsList(false);
   }
 }

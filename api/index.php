@@ -47,6 +47,12 @@ function requireAdmin($pdo) {
     return $u;
 }
 
+function requireClaimsAccess($pdo) {
+    $u = requireLogin($pdo);
+    if ($u['role'] !== 'admin' && !$u['canSendClaims']) respond(['error' => 'ما عندك صلاحية الوصول لصفحة المطالبات المالية'], 403);
+    return $u;
+}
+
 /* ============ واتساب — Meta Cloud API الرسمي ============ */
 require_once __DIR__ . '/helpers.php';
 
@@ -555,7 +561,7 @@ switch ($action) {
 
     /* ============ المطالبات المالية ============ */
     case 'addClaim': {
-        $user = requireAdmin($pdo);
+        $user = requireClaimsAccess($pdo);
         $b = bodyInput();
         if (empty($b['debtorName']) || empty($b['amount'])) respond(['error' => 'اسم المدين والمبلغ مطلوبان'], 400);
         $stmt = $pdo->prepare("INSERT INTO financial_claims (debtor_name, debtor_phone, amount, description, due_date, created_by) VALUES (?, ?, ?, ?, ?, ?)");
@@ -564,14 +570,14 @@ switch ($action) {
     }
 
     case 'removeClaim': {
-        requireAdmin($pdo);
+        requireClaimsAccess($pdo);
         $b = bodyInput();
         $pdo->prepare("DELETE FROM financial_claims WHERE id = ?")->execute([$b['id'] ?? 0]);
         respond(['success' => true]);
     }
 
     case 'addClaimPayment': {
-        requireAdmin($pdo);
+        requireClaimsAccess($pdo);
         $b = bodyInput();
         $claimId = $b['id'] ?? 0;
         $amount = is_numeric($b['amount'] ?? null) ? (float) $b['amount'] : 0;
@@ -581,8 +587,7 @@ switch ($action) {
     }
 
     case 'sendClaimReminder': {
-        $user = requireLogin($pdo);
-        if ($user['role'] !== 'admin' && !$user['canSendClaims']) respond(['error' => 'ما عندك صلاحية لإرسال تذكيرات المطالبات'], 403);
+        $user = requireClaimsAccess($pdo);
         $b = bodyInput();
         $stmt = $pdo->prepare("SELECT * FROM financial_claims WHERE id = ?");
         $stmt->execute([$b['id'] ?? 0]);
@@ -600,7 +605,7 @@ switch ($action) {
     }
 
     case 'claimReminderLog': {
-        requireAdmin($pdo);
+        requireClaimsAccess($pdo);
         $b = bodyInput();
         $stmt = $pdo->prepare("SELECT success, sent_at AS sentAt FROM claim_reminders WHERE claim_id = ? ORDER BY sent_at DESC");
         $stmt->execute([$b['claimId'] ?? 0]);
