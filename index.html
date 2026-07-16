@@ -1639,7 +1639,7 @@ function adminClaims(){
         <td style="min-width:130px;">
           <div style="display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-start;">
             ${remaining>0?`<button class="btn btn-ghost btn-sm" data-add-payment="${c.id}">دفعة</button>`:''}
-            ${remaining>0 && c.debtorPhone?`<button class="btn btn-primary btn-sm" data-send-reminder="${c.id}">تذكير 📱</button>`:''}
+            ${remaining>0 && c.debtorPhone?`<button class="btn btn-primary btn-sm" style="width:auto;" data-send-reminder="${c.id}">تذكير 📱</button>`:''}
             <button class="btn btn-ghost btn-sm" data-view-reminder-log="${c.id}">📜 الأرشيف</button>
             <button class="btn btn-danger btn-sm" data-remove-claim="${c.id}">حذف</button>
           </div>
