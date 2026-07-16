@@ -168,6 +168,21 @@
   .chat-bubble-name{font-size:11px;font-weight:800;color:var(--primary);margin-bottom:2px;}
   .chat-bubble-text{font-size:13px;line-height:1.6;}
   .chat-bubble-time{font-size:10px;color:var(--text-faint);margin-top:4px;}
+
+  .team-chat-widget{position:fixed;bottom:22px;left:22px;z-index:150;display:flex;flex-direction:column;align-items:flex-start;gap:12px;}
+  .team-chat-bubble-btn{position:relative;width:56px;height:56px;border-radius:50%;background:var(--primary);color:#fff;font-size:24px;box-shadow:0 6px 20px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;flex:none;}
+  .team-chat-bubble-btn:hover{transform:scale(1.05);}
+  .team-chat-dot{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--danger);border:2px solid var(--surface);}
+  .team-chat-panel{width:330px;max-width:calc(100vw - 44px);height:440px;max-height:70vh;background:var(--surface);border-radius:var(--radius);box-shadow:0 10px 40px rgba(0,0,0,0.3);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--border);}
+  .team-chat-panel-head{background:var(--primary);color:#fff;padding:12px 16px;font-weight:800;font-size:13.5px;display:flex;align-items:center;justify-content:space-between;flex:none;}
+  .team-chat-close-btn{background:rgba(255,255,255,0.15);color:#fff;width:26px;height:26px;border-radius:50%;font-size:13px;}
+  .team-chat-panel-body{flex:1;overflow-y:auto;padding:14px;margin:0;}
+  .team-chat-panel-foot{flex:none;display:flex;gap:8px;padding:10px;border-top:1px solid var(--border);}
+  .team-chat-panel-foot input{flex:1;padding:9px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-size:16px;}
+  @media(max-width:860px){
+    .team-chat-widget{bottom:16px;left:16px;}
+    .team-chat-panel{width:calc(100vw - 32px);height:60vh;}
+  }
   .task-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
   .task-card-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid var(--border);margin-top:auto;flex-wrap:wrap;}
   .task-assignees-mini{font-size:11.5px;color:var(--text-faint);}
@@ -252,7 +267,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0,
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnread: false,
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'all', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -488,14 +503,14 @@ async function loadTeamChat(silent){
   const newest = msgs.length ? msgs[msgs.length-1] : null;
   if(newest && newest.id > state.teamChatLastId){
     const isFirstLoad = state.teamChatLastId === 0;
-    if(!isFirstLoad && newest.userId !== state.currentUser.id) playChatBeep();
+    if(!isFirstLoad && newest.userId !== state.currentUser.id){
+      playChatBeep();
+      if(!state.teamChatOpen) state.teamChatUnread = true;
+    }
     state.teamChatLastId = newest.id;
   }
   state.teamChat = msgs;
-  if(!silent){ render(); scrollChatToBottom(); }
-  else if((state.currentUser.role==='admin' && state.adminTab==='teamchat') || (state.currentUser.role==='employee' && state.empTab==='teamchat')){
-    render(); scrollChatToBottom();
-  }
+  if(!silent || state.teamChatOpen){ render(); if(state.teamChatOpen) scrollChatToBottom(); }
 }
 async function sendTeamChatMessage(message){
   const res = await apiPost('sendTeamChatMessage', { message });
@@ -916,7 +931,6 @@ function renderAdmin(){
     {key:'claims', icon:'claims', label:'المطالبات المالية'},
     {key:'whatsapp', icon:'whatsapp', label:'ربط واتساب'},
     {key:'inbox', icon:'notifications', label:'صندوق الرسائل'},
-    {key:'teamchat', icon:'teamchat', label:'دردشة الفريق'},
     {key:'notifications', icon:'notifications', label:'الإشعارات'},
   ];
   return `
@@ -947,17 +961,18 @@ function renderAdmin(){
   ${state.clientModal ? clientModal() : ''}
   ${state.departmentModal ? departmentModal() : ''}
   ${state.scheduleModal ? scheduleModal() : ''}
+  ${teamChatWidget()}
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', teamchat:'دردشة الفريق', notifications:'سجل الإشعارات'}; }
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', notifications:'سجل الإشعارات'}; }
 function adminSubs(){ return {
   dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
   tasks:'إنشاء متابعة المهام الفردية والمشتركة', clients:'عملاء الوكالة وبيانات التواصل معهم', departments:'أقسام الشركة وتوزيع الموظفين عليها',
   attendance:'حالة الحضور والانصراف، ومراجعة طلبات الإجازة',
   rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي',
   claims:'متابعة الحسابات والديون المستحقة على العملاء وإرسال تذكيرات',
-  whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', inbox:'كل الرسائل الصادرة والواردة عبر واتساب في مكان واحد', teamchat:'محادثة جماعية لكل الفريق مع بعض', notifications:'كل التنبيهات المُرسلة للفريق'
+  whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', inbox:'كل الرسائل الصادرة والواردة عبر واتساب في مكان واحد', notifications:'كل التنبيهات المُرسلة للفريق'
 }; }
 
 function adminTabContent(){
@@ -973,7 +988,6 @@ function adminTabContent(){
     case 'claims': return adminClaims();
     case 'whatsapp': return adminWhatsapp();
     case 'inbox': return adminInbox();
-    case 'teamchat': return teamChatPage();
     case 'notifications': return notificationsList(true);
   }
 }
@@ -1776,29 +1790,40 @@ function claimForm(){
   </div>`;
 }
 
-function teamChatPage(){
+function teamChatWidget(){
   const msgs = state.teamChat || [];
   const me = state.currentUser;
+  const open = state.teamChatOpen;
   return `
-  <div class="card">
-    <div class="section-title">💬 دردشة الفريق (كل الموظفين والمدير)</div>
-    <div id="teamChatThread" class="chat-thread" style="max-height:500px;">
-      ${msgs.length===0?`<div class="empty">لا توجد رسائل بعد، ابدأ الدردشة مع فريقك</div>`:msgs.map(m=>{
-        const isMe = m.userId===me.id;
-        return `<div class="chat-bubble-row ${isMe?'mine':''}">
-          <div class="avatar" style="width:28px;height:28px;font-size:11px;">${m.userName[0]}</div>
-          <div class="chat-bubble ${isMe?'mine':''}">
-            <div class="chat-bubble-name">${m.userName}</div>
-            <div class="chat-bubble-text">${m.message}</div>
-            <div class="chat-bubble-time">${fmtDateTime(m.createdAt)}</div>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>
-    <form id="teamChatForm" style="display:flex;gap:8px;margin-top:12px;">
-      <input name="message" placeholder="اكتب رسالة للفريق..." style="flex:1;padding:10px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-size:16px;" autocomplete="off" required/>
-      <button type="submit" class="btn btn-primary btn-sm">إرسال</button>
-    </form>
+  <div class="team-chat-widget">
+    ${open?`
+    <div class="team-chat-panel">
+      <div class="team-chat-panel-head">
+        <span>💬 دردشة الفريق</span>
+        <button type="button" id="closeTeamChatWidget" class="team-chat-close-btn">✕</button>
+      </div>
+      <div id="teamChatThread" class="chat-thread team-chat-panel-body">
+        ${msgs.length===0?`<div class="empty">لا توجد رسائل بعد، ابدأ الدردشة مع فريقك</div>`:msgs.map(m=>{
+          const isMe = m.userId===me.id;
+          return `<div class="chat-bubble-row ${isMe?'mine':''}">
+            <div class="avatar" style="width:26px;height:26px;font-size:10.5px;">${m.userName[0]}</div>
+            <div class="chat-bubble ${isMe?'mine':''}">
+              <div class="chat-bubble-name">${m.userName}</div>
+              <div class="chat-bubble-text">${m.message}</div>
+              <div class="chat-bubble-time">${fmtDateTime(m.createdAt)}</div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <form id="teamChatForm" class="team-chat-panel-foot">
+        <input name="message" placeholder="اكتب رسالة..." autocomplete="off" required/>
+        <button type="submit" class="btn btn-primary btn-sm">إرسال</button>
+      </form>
+    </div>` : ''}
+    <button type="button" id="toggleTeamChatWidget" class="team-chat-bubble-btn">
+      ${open?'✕':'💬'}
+      ${!open && state.teamChatUnread ? '<span class="team-chat-dot"></span>' : ''}
+    </button>
   </div>`;
 }
 
@@ -1966,7 +1991,6 @@ function renderEmployee(){
     {key:'points', icon:'rewards', label:'نقاطي'},
     {key:'report', icon:'reports', label:'تقريري الشهري'},
     ...(state.currentUser.canSendClaims ? [{key:'claims', icon:'claims', label:'تذكيرات المطالبات'}] : []),
-    {key:'teamchat', icon:'teamchat', label:'دردشة الفريق'},
     {key:'notifications', icon:'notifications', label:'الإشعارات'},
   ];
   return `
@@ -1991,14 +2015,15 @@ function renderEmployee(){
     </div>
   </div>
   ${state.leaveModal ? leaveModal() : ''}
+  ${teamChatWidget()}
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي وإجازاتي', points:'نقاطي وترتيبي', report:'تقريري الشهري', claims:'تذكيرات المطالبات المالية', teamchat:'دردشة الفريق', notifications:'الإشعارات'}; }
+function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي وإجازاتي', points:'نقاطي وترتيبي', report:'تقريري الشهري', claims:'تذكيرات المطالبات المالية', notifications:'الإشعارات'}; }
 function empSubs(){ return {
   dashboard:'نظرة سريعة على يومك', tasks:'المهام المسندة لك بشكل فردي أو مشترك',
   attendance:'سجل حضورك وانصرافك، وطلب إجازة جديدة', points:'رصيدك من النقاط وترتيبك بين الفريق',
-  report:'أداؤك خلال الشهر الحالي', claims:'إضافة مطالبات، تسجيل دفعات، وإرسال تذكيرات واتساب', teamchat:'محادثة جماعية لكل الفريق مع بعض', notifications:'كل التنبيهات الخاصة بك'
+  report:'أداؤك خلال الشهر الحالي', claims:'إضافة مطالبات، تسجيل دفعات، وإرسال تذكيرات واتساب', notifications:'كل التنبيهات الخاصة بك'
 }; }
 
 function empTabContent(){
@@ -2009,7 +2034,6 @@ function empTabContent(){
     case 'points': return empPoints();
     case 'report': return empReport();
     case 'claims': return state.currentUser.canSendClaims ? adminClaims() : empClaims();
-    case 'teamchat': return teamChatPage();
     case 'notifications': return notificationsList(false);
   }
 }
@@ -2192,7 +2216,6 @@ function attachAppEvents(){
       const tab = el.getAttribute('data-tab');
       if(state.currentUser.role==='admin') state.adminTab = tab; else state.empTab = tab;
       if(tab==='inbox') state.waConversationsLoaded = false;
-      if(tab==='teamchat') loadTeamChat(false);
       state.mobileMenuOpen = false;
       render();
     });
@@ -2363,6 +2386,14 @@ function attachAppEvents(){
     if(!msg) return;
     sendTeamChatMessage(msg);
     e.target.message.value = '';
+  });
+  document.getElementById('toggleTeamChatWidget')?.addEventListener('click', ()=>{
+    state.teamChatOpen = !state.teamChatOpen;
+    if(state.teamChatOpen){ state.teamChatUnread = false; loadTeamChat(false); }
+    else render();
+  });
+  document.getElementById('closeTeamChatWidget')?.addEventListener('click', ()=>{
+    state.teamChatOpen = false; render();
   });
 
   document.getElementById('checkInBtn')?.addEventListener('click', checkIn);
