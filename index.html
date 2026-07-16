@@ -65,6 +65,8 @@
   .btn-ghost{background:transparent;color:var(--text-muted);border:1.5px solid var(--border);}
   .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
   .btn-sm{padding:8px 12px;font-size:13px;}
+  .claim-actions{display:grid;grid-template-columns:1fr 1fr;gap:5px;}
+  .claim-action-btn{width:100% !important;padding:6px 8px !important;font-size:11.5px !important;white-space:nowrap;}
   .btn-danger{background:var(--danger-tint);color:var(--danger);}
   .auth-error{background:var(--danger-tint);color:var(--danger);padding:10px 14px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:14px;font-weight:600;}
   .auth-note{margin-top:18px;font-size:12.5px;color:var(--text-faint);line-height:1.9;background:var(--surface-2);padding:12px 14px;border-radius:var(--radius-sm);}
@@ -1636,12 +1638,12 @@ function adminClaims(){
         <td style="font-weight:700;color:${remaining>0?'var(--danger)':'var(--success)'};">${remaining.toLocaleString()}</td>
         <td style="font-size:11.5px;">${c.dueDate?fmtDate(c.dueDate):'—'}</td>
         <td><span class="badge ${cls}">${label}</span></td>
-        <td style="min-width:130px;">
-          <div style="display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-start;">
-            ${remaining>0?`<button class="btn btn-ghost btn-sm" data-add-payment="${c.id}">دفعة</button>`:''}
-            ${remaining>0 && c.debtorPhone?`<button class="btn btn-primary btn-sm" style="width:auto;" data-send-reminder="${c.id}">تذكير 📱</button>`:''}
-            <button class="btn btn-ghost btn-sm" data-view-reminder-log="${c.id}">📜 الأرشيف</button>
-            <button class="btn btn-danger btn-sm" data-remove-claim="${c.id}">حذف</button>
+        <td style="min-width:190px;">
+          <div class="claim-actions">
+            ${remaining>0?`<button class="btn btn-ghost btn-sm claim-action-btn" data-add-payment="${c.id}">💰 دفعة</button>`:''}
+            ${remaining>0 && c.debtorPhone?`<button class="btn btn-primary btn-sm claim-action-btn" style="width:auto;" data-send-reminder="${c.id}">📱 تذكير</button>`:''}
+            <button class="btn btn-ghost btn-sm claim-action-btn" data-view-reminder-log="${c.id}">📜 أرشيف</button>
+            <button class="btn btn-danger btn-sm claim-action-btn" data-remove-claim="${c.id}">🗑️ حذف</button>
           </div>
         </td>
       </tr>`;
