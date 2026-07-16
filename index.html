@@ -482,8 +482,22 @@ function unlockAudio(){
     try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; }
   }
   if(audioCtx.state === 'suspended') audioCtx.resume();
+  if(window.Notification && Notification.permission==='default') Notification.requestPermission();
 }
 document.addEventListener('click', unlockAudio, { once:false });
+
+function showBrowserNotification(senderName, message){
+  if(!window.Notification || Notification.permission!=='granted') return;
+  try{
+    const n = new Notification('💬 ' + senderName + ' — دردشة الفريق', {
+      body: message.slice(0,120),
+      tag: 'superapple-teamchat',
+      renotify: true,
+    });
+    n.onclick = ()=>{ window.focus(); n.close(); };
+    setTimeout(()=>n.close(), 8000);
+  }catch(e){ /* بعض المتصفحات على الموبايل ما بتدعمها */ }
+}
 
 function playChatBeep(){
   try{
@@ -517,6 +531,7 @@ async function loadTeamChat(silent){
       const newOnes = msgs.filter(m=>m.id>state.teamChatLastId && m.userId!==state.currentUser.id);
       if(newOnes.length>0){
         playChatBeep();
+        if(document.hidden) showBrowserNotification(newOnes[newOnes.length-1].userName, newOnes[newOnes.length-1].message);
         if(!state.teamChatOpen) state.teamChatUnreadCount += newOnes.length;
       }
     }
@@ -531,6 +546,7 @@ async function sendTeamChatMessage(message){
   await loadTeamChat(false);
 }
 setInterval(()=>{ if(state.currentUser) loadTeamChat(true); }, 6000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && state.currentUser) loadTeamChat(true); });
 
 
 /* ---------------- ATTENDANCE ---------------- */
