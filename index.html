@@ -684,7 +684,7 @@ async function handleCreateTask(e){
 function taskStatus(task){
   const allDone = task.assignees.length>0 && task.assignees.every(a=>a.done);
   if(allDone) return 'done';
-  if(task.deadline && new Date(task.deadline) < new Date()) return 'late';
+  if(task.deadline && task.deadline.slice(0,10) < todayStr()) return 'late';
   if(task.status==='in_progress') return 'in_progress';
   return 'new';
 }
