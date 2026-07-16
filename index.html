@@ -542,6 +542,7 @@ async function loadTeamChat(silent){
   const res = await apiPost('teamChatMessages', {});
   const msgs = res.messages || [];
   const newest = msgs.length ? msgs[msgs.length-1] : null;
+  let unreadChanged = false;
 
   if(newest && newest.id > state.teamChatLastId){
     const isFirstCheck = state.teamChatLastId === 0;
@@ -552,13 +553,13 @@ async function loadTeamChat(silent){
         playChatBeep();
         if(document.hidden) showBrowserNotification(newOnes[newOnes.length-1].userName, newOnes[newOnes.length-1].message);
       }
-      if(!state.teamChatOpen) state.teamChatUnreadCount = newOnes.length;
+      if(!state.teamChatOpen){ state.teamChatUnreadCount = newOnes.length; unreadChanged = true; }
     }
     state.teamChatLastId = newest.id;
     if(state.teamChatOpen) setLastReadChatId(newest.id);
   }
   state.teamChat = msgs;
-  if(!silent || state.teamChatOpen){ render(); if(state.teamChatOpen) scrollChatToBottom(); }
+  if(!silent || state.teamChatOpen || unreadChanged){ render(); if(state.teamChatOpen) scrollChatToBottom(); }
 }
 async function sendTeamChatMessage(message){
   const res = await apiPost('sendTeamChatMessage', { message });
