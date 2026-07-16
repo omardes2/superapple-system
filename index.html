@@ -1603,8 +1603,8 @@ function adminClaims(){
   const claims = state.claims||[];
   const totalDue = claims.reduce((s,c)=>s+Math.max(0,c.amount-c.paidAmount),0);
   const overdueCount = claims.filter(c=>claimStatus(c)==='overdue').length;
-  const {start,end} = monthRange();
-  const collectedThisMonth = claims.reduce((s,c)=>s+ (new Date(c.createdAt)>=start && new Date(c.createdAt)<=end ? c.paidAmount : 0),0);
+  const {from,to} = thisMonthRange();
+  const collectedThisMonth = claims.reduce((s,c)=>s+ (c.createdAt.slice(0,10)>=from && c.createdAt.slice(0,10)<=to ? (+c.paidAmount) : 0),0);
   const claimStatusMap = {paid:['مدفوعة','badge-success'], due:['مستحقة','badge-warning'], overdue:['متأخرة','badge-danger']};
 
   return `
