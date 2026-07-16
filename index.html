@@ -1344,6 +1344,8 @@ function taskCard(t, adminView){
   const color = TASK_COLORS[status] || TASK_COLORS.new;
   const priorityIcon = t.priority==='high'?'🔴':t.priority==='medium'?'🟡':'⚪';
   const allDone = t.assignees.length>0 && t.assignees.every(a=>a.done);
+  const myAssignee = t.assignees.find(a=>a.userId===state.currentUser.id);
+  const needsAccept = myAssignee && !myAssignee.accepted && !myAssignee.done;
   return `
   <div class="task-card" style="border-top:4px solid ${color};">
     <div class="task-card-topline">
@@ -1363,6 +1365,7 @@ function taskCard(t, adminView){
       <span class="task-assignees-mini">👥 ${t.assignees.length>0?t.assignees.map(a=>{const u=state.users.find(u=>u.id===a.userId);return u?u.name.split(' ')[0]:'';}).join('، '):'بدون موظفين'}</span>
       <div style="display:flex;gap:6px;">
         ${adminView?`<button class="btn btn-danger btn-sm" data-remove-task="${t.id}">حذف</button>`:''}
+        ${needsAccept?`<button class="btn btn-primary btn-sm" style="background:var(--success);" data-accept-task-card="${t.id}">📥 استلام</button>`:''}
         <button class="btn btn-primary btn-sm" data-open-task="${t.id}">فتح ←</button>
       </div>
     </div>
@@ -2395,6 +2398,9 @@ function attachAppEvents(){
   document.getElementById('closeTaskDetail')?.addEventListener('click', ()=>{ state.openTaskId = null; state.taskComments = []; render(); });
   document.querySelectorAll('[data-accept-task]').forEach(el=>{
     el.addEventListener('click', ()=> acceptTask(el.getAttribute('data-accept-task')));
+  });
+  document.querySelectorAll('[data-accept-task-card]').forEach(el=>{
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); acceptTask(el.getAttribute('data-accept-task-card')); });
   });
   document.querySelectorAll('[data-complete-task]').forEach(el=>{
     el.addEventListener('click', ()=>{ const [tid,uid] = el.getAttribute('data-complete-task').split('|'); completeTaskAssignee(tid,uid); });
