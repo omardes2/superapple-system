@@ -250,10 +250,10 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [],
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'all', reportFilter: { preset: 'thisMonth', from: '', to: '' },
-  taskModal: false, empModal: false, clientModal: false, departmentModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
+  taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
 
@@ -293,6 +293,7 @@ function applyBootstrap(data){
   state.users = data.users || [];
   state.clients = data.clients || [];
   state.departments = data.departments || [];
+  state.claims = data.claims || [];
   state.leaveRequests = data.leaveRequests || [];
   state.tasks = (data.tasks || []).map(t => ({ ...t, assignees: (t.assignees||[]).map(a => ({ ...a, done: !!a.done })) }));
   state.attendance = data.attendance || [];
@@ -403,6 +404,39 @@ async function handleRemoveDepartment(id){
   await apiPost('removeDepartment', { id });
   await refresh();
   showToast('تم حذف القسم');
+}
+
+/* ---------------- FINANCIAL CLAIMS (admin) ---------------- */
+async function handleAddClaim(e){
+  e.preventDefault();
+  const f = e.target;
+  const res = await apiPost('addClaim', {
+    debtorName: f.debtorName.value.trim(), debtorPhone: f.debtorPhone.value.trim(),
+    amount: f.amount.value, description: f.description.value.trim(), dueDate: f.dueDate.value
+  });
+  if(res.error){ showToast(res.error); return; }
+  state.claimModal = false;
+  await refresh();
+  showToast('تمت إضافة المطالبة');
+}
+async function handleRemoveClaim(id){
+  if(!confirm('هل أنت متأكد من حذف هذه المطالبة؟')) return;
+  await apiPost('removeClaim', { id });
+  await refresh();
+  showToast('تم حذف المطالبة');
+}
+async function handleAddPayment(id){
+  const amount = prompt('أدخل المبلغ المدفوع:');
+  if(!amount || isNaN(amount) || +amount<=0) return;
+  const res = await apiPost('addClaimPayment', { id, amount });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  showToast('تم تسجيل الدفعة');
+}
+async function handleSendReminder(id){
+  const res = await apiPost('sendClaimReminder', { id });
+  if(res.error){ showToast(res.error); return; }
+  showToast('تم إرسال التذكير عبر واتساب ✅');
 }
 
 
@@ -771,6 +805,7 @@ const ICONS = {
   projects: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>`,
   employees: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.5 2.9-6 6.5-6s6.5 2.5 6.5 6"/><path d="M16.5 6.5a3 3 0 010 6"/><path d="M21.5 20c-.2-2.8-1.9-5-4.5-5.7"/></svg>`,
   departments: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`,
+  claims: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 012-2h9l5 5v9a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"/><path d="M14 4v5h5"/><path d="M8 13h8M8 17h5"/></svg>`,
   attendance: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`,
   rewards: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v5a4 4 0 01-8 0V4z"/><path d="M8 6H5a2 2 0 002 4M16 6h3a2 2 0 01-2 4"/><path d="M12 13v3"/><path d="M9 20h6M10 16.5h4v3.5h-4z"/></svg>`,
   reports: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M9 13v4M12 11v6M15 15v2"/></svg>`,
@@ -812,6 +847,7 @@ function renderAdmin(){
     {key:'attendance', icon:'attendance', label:'الدوام والإجازات'},
     {key:'rewards', icon:'rewards', label:'النقاط والمكافآت'},
     {key:'reports', icon:'reports', label:'التقارير'},
+    {key:'claims', icon:'claims', label:'المطالبات المالية'},
     {key:'whatsapp', icon:'whatsapp', label:'ربط واتساب'},
     {key:'notifications', icon:'notifications', label:'الإشعارات'},
   ];
@@ -846,12 +882,13 @@ function renderAdmin(){
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', whatsapp:'ربط واتساب', notifications:'سجل الإشعارات'}; }
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', claims:'المطالبات المالية', whatsapp:'ربط واتساب', notifications:'سجل الإشعارات'}; }
 function adminSubs(){ return {
   dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
   tasks:'إنشاء متابعة المهام الفردية والمشتركة', clients:'عملاء الوكالة وبيانات التواصل معهم', departments:'أقسام الشركة وتوزيع الموظفين عليها',
   attendance:'حالة الحضور والانصراف، ومراجعة طلبات الإجازة',
   rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي',
+  claims:'متابعة الحسابات والديون المستحقة على العملاء وإرسال تذكيرات',
   whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', notifications:'كل التنبيهات المُرسلة للفريق'
 }; }
 
@@ -865,6 +902,7 @@ function adminTabContent(){
     case 'attendance': return adminAttendance();
     case 'rewards': return adminRewards();
     case 'reports': return adminReports();
+    case 'claims': return adminClaims();
     case 'whatsapp': return adminWhatsapp();
     case 'notifications': return notificationsList(true);
   }
@@ -1555,6 +1593,71 @@ function reportsClients(){
   </div>`;
 }
 
+function claimStatus(c){
+  const remaining = Math.round((c.amount - c.paidAmount)*100)/100;
+  if(remaining<=0) return 'paid';
+  if(c.dueDate && new Date(c.dueDate) < new Date()) return 'overdue';
+  return 'due';
+}
+function adminClaims(){
+  const claims = state.claims||[];
+  const totalDue = claims.reduce((s,c)=>s+Math.max(0,c.amount-c.paidAmount),0);
+  const overdueCount = claims.filter(c=>claimStatus(c)==='overdue').length;
+  const {start,end} = monthRange();
+  const collectedThisMonth = claims.reduce((s,c)=>s+ (new Date(c.createdAt)>=start && new Date(c.createdAt)<=end ? c.paidAmount : 0),0);
+  const claimStatusMap = {paid:['مدفوعة','badge-success'], due:['مستحقة','badge-warning'], overdue:['متأخرة','badge-danger']};
+
+  return `
+  <div class="grid grid-3" style="margin-bottom:16px;">
+    <div class="card stat-card"><div class="stat-label">إجمالي المستحق على العملاء</div><div class="stat-value" style="color:var(--danger)">${totalDue.toLocaleString()}</div></div>
+    <div class="card stat-card"><div class="stat-label">مطالبات متأخرة</div><div class="stat-value" style="color:var(--danger)">${overdueCount}</div></div>
+    <div class="card stat-card"><div class="stat-label">محصّل هذا الشهر</div><div class="stat-value" style="color:var(--success)">${collectedThisMonth.toLocaleString()}</div></div>
+  </div>
+  <div class="section-title">قائمة المطالبات (${claims.length}) ${state.claimModal?'':'<button class="btn btn-primary btn-sm" id="openClaimModal">+ مطالبة جديدة</button>'}</div>
+  ${state.claimModal ? claimForm() : ''}
+  ${claims.length===0?`<div class="card"><div class="empty">لا توجد مطالبات مالية بعد.</div></div>`:`
+  <div class="card">
+    <table><thead><tr><th>المدين</th><th>الوصف</th><th>المبلغ</th><th>المدفوع</th><th>المتبقي</th><th>الاستحقاق</th><th>الحالة</th><th></th></tr></thead><tbody>
+    ${claims.map(c=>{
+      const remaining = Math.round((c.amount-c.paidAmount)*100)/100;
+      const [label,cls] = claimStatusMap[claimStatus(c)];
+      return `<tr>
+        <td>${c.debtorName}${c.debtorPhone?`<div style="font-size:10.5px;color:var(--text-faint);" dir="ltr">${c.debtorPhone}</div>`:''}</td>
+        <td style="font-size:11.5px;color:var(--text-muted);max-width:160px;">${c.description||'—'}</td>
+        <td>${(+c.amount).toLocaleString()}</td>
+        <td style="color:var(--success);">${(+c.paidAmount).toLocaleString()}</td>
+        <td style="font-weight:700;color:${remaining>0?'var(--danger)':'var(--success)'};">${remaining.toLocaleString()}</td>
+        <td style="font-size:11.5px;">${c.dueDate?fmtDate(c.dueDate):'—'}</td>
+        <td><span class="badge ${cls}">${label}</span></td>
+        <td style="white-space:nowrap;">
+          ${remaining>0?`<button class="btn btn-ghost btn-sm" data-add-payment="${c.id}">دفعة</button>`:''}
+          ${remaining>0 && c.debtorPhone?`<button class="btn btn-primary btn-sm" data-send-reminder="${c.id}">تذكير 📱</button>`:''}
+          <button class="btn btn-danger btn-sm" data-remove-claim="${c.id}">حذف</button>
+        </td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>
+  </div>`}`;
+}
+
+function claimForm(){
+  return `<div class="card" style="margin-bottom:16px;border-color:var(--accent);">
+    <div class="section-title">مطالبة مالية جديدة <button type="button" class="btn btn-ghost btn-sm" id="closeClaimModal">إغلاق ✕</button></div>
+    <form id="claimForm">
+      <div class="form-row">
+        <div class="field"><label>اسم المدين (شخص أو شركة)</label><input name="debtorName" required/></div>
+        <div class="field"><label>رقم واتساب (اختياري، للتذكير)</label><input name="debtorPhone" dir="ltr" placeholder="970591234567"/></div>
+      </div>
+      <div class="field"><label>الوصف</label><input name="description" placeholder="مثال: تصميم حملة إعلانية - يوليو"/></div>
+      <div class="form-row">
+        <div class="field"><label>المبلغ الكلي</label><input name="amount" type="number" step="0.01" min="0" required/></div>
+        <div class="field"><label>تاريخ الاستحقاق</label><input name="dueDate" type="date"/></div>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;">إضافة المطالبة</button>
+    </form>
+  </div>`;
+}
+
 function adminWhatsapp(){
   const employees = state.users.filter(u=>u.role==='employee');
   const missingPhone = employees.filter(e=>!e.phone).length;
@@ -1917,6 +2020,19 @@ function attachAppEvents(){
   document.getElementById('departmentForm')?.addEventListener('submit', handleAddDepartment);
   document.querySelectorAll('[data-remove-department]').forEach(el=>{
     el.addEventListener('click', ()=> handleRemoveDepartment(el.getAttribute('data-remove-department')));
+  });
+
+  document.getElementById('openClaimModal')?.addEventListener('click', ()=>{ state.claimModal=true; render(); });
+  document.getElementById('closeClaimModal')?.addEventListener('click', ()=>{ state.claimModal=false; render(); });
+  document.getElementById('claimForm')?.addEventListener('submit', handleAddClaim);
+  document.querySelectorAll('[data-remove-claim]').forEach(el=>{
+    el.addEventListener('click', ()=> handleRemoveClaim(el.getAttribute('data-remove-claim')));
+  });
+  document.querySelectorAll('[data-add-payment]').forEach(el=>{
+    el.addEventListener('click', ()=> handleAddPayment(el.getAttribute('data-add-payment')));
+  });
+  document.querySelectorAll('[data-send-reminder]').forEach(el=>{
+    el.addEventListener('click', ()=> handleSendReminder(el.getAttribute('data-send-reminder')));
   });
   document.querySelectorAll('[data-reports-tab]').forEach(el=>{
     el.addEventListener('click', ()=>{ state.reportsTab = el.getAttribute('data-reports-tab'); render(); });

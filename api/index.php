@@ -123,6 +123,7 @@ switch ($action) {
             $payload['clients'] = $pdo->query("SELECT id, name, contact_name AS contactName, phone, email, notes, created_at AS createdAt FROM clients ORDER BY name")->fetchAll();
             if ($isAdmin) {
                 $payload['departments'] = $pdo->query("SELECT id, name FROM departments ORDER BY name")->fetchAll();
+                $payload['claims'] = $pdo->query("SELECT id, debtor_name AS debtorName, debtor_phone AS debtorPhone, amount, paid_amount AS paidAmount, description, due_date AS dueDate, created_at AS createdAt FROM financial_claims ORDER BY due_date IS NULL, due_date ASC")->fetchAll();
             }
 
             $tasks = $pdo->query("SELECT id, title, description, priority, status, category, deadline, client_id AS clientId, created_by AS createdBy, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
@@ -507,6 +508,50 @@ switch ($action) {
         requireAdmin($pdo);
         $rows = $pdo->query("SELECT phone, success, response, created_at AS createdAt FROM whatsapp_log ORDER BY id DESC LIMIT 15")->fetchAll();
         respond(['log' => $rows]);
+    }
+
+    /* ============ المطالبات المالية ============ */
+    case 'addClaim': {
+        $user = requireAdmin($pdo);
+        $b = bodyInput();
+        if (empty($b['debtorName']) || empty($b['amount'])) respond(['error' => 'اسم المدين والمبلغ مطلوبان'], 400);
+        $stmt = $pdo->prepare("INSERT INTO financial_claims (debtor_name, debtor_phone, amount, description, due_date, created_by) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([trim($b['debtorName']), trim($b['debtorPhone'] ?? ''), $b['amount'], trim($b['description'] ?? ''), $b['dueDate'] ?: null, $user['id']]);
+        respond(['success' => true]);
+    }
+
+    case 'removeClaim': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("DELETE FROM financial_claims WHERE id = ?")->execute([$b['id'] ?? 0]);
+        respond(['success' => true]);
+    }
+
+    case 'addClaimPayment': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $claimId = $b['id'] ?? 0;
+        $amount = is_numeric($b['amount'] ?? null) ? (float) $b['amount'] : 0;
+        if ($amount <= 0) respond(['error' => 'أدخل مبلغًا صحيحًا'], 400);
+        $pdo->prepare("UPDATE financial_claims SET paid_amount = paid_amount + ? WHERE id = ?")->execute([$amount, $claimId]);
+        respond(['success' => true]);
+    }
+
+    case 'sendClaimReminder': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $stmt = $pdo->prepare("SELECT * FROM financial_claims WHERE id = ?");
+        $stmt->execute([$b['id'] ?? 0]);
+        $claim = $stmt->fetch();
+        if (!$claim) respond(['error' => 'المطالبة غير موجودة'], 404);
+        if (empty($claim['debtor_phone'])) respond(['error' => 'لا يوجد رقم واتساب مسجّل لهذا المدين'], 400);
+
+        $remaining = round($claim['amount'] - $claim['paid_amount'], 2);
+        $dueTxt = $claim['due_date'] ? date('d/m/Y', strtotime($claim['due_date'])) : 'غير محدد';
+        $message = "تذكير من سوبر آبل: لديك مبلغ مستحق قدره {$remaining} بخصوص \"{$claim['description']}\"، تاريخ الاستحقاق {$dueTxt}. يرجى التواصل لتسوية الحساب.";
+        $result = sendWhatsAppCloud($pdo, $claim['debtor_phone'], $message);
+        if (!$result['success']) respond(['error' => $result['error']], 400);
+        respond(['success' => true]);
     }
 
     /* ============ الأقسام ============ */
