@@ -88,18 +88,40 @@ function doCheckIn($pdo, $user, $lat, $lng) {
 
 function doCheckOut($pdo, $user) {
     $today = date('Y-m-d');
-    $stmt = $pdo->prepare("SELECT id, check_in, check_out FROM attendance WHERE user_id = ? AND date = ?");
+    $stmt = $pdo->prepare("SELECT id, check_in, check_out, status FROM attendance WHERE user_id = ? AND date = ?");
     $stmt->execute([$user['id'], $today]);
     $rec = $stmt->fetch();
     if (!$rec || $rec['check_out']) return ['error' => 'لا يوجد تسجيل حضور مفتوح'];
     $time = date('H:i:s');
     $pdo->prepare("UPDATE attendance SET check_out = ? WHERE id = ?")->execute([$time, $rec['id']]);
 
+    $workStart = $user['workStart'] ?: '08:00:00';
+    $workEnd = $user['workEnd'] ?: '16:00:00';
     $workedHours = round((strtotime($time) - strtotime($rec['check_in'])) / 3600, 1);
-    $expectedHours = round((strtotime($user['workEnd'] ?: '16:00:00') - strtotime($user['workStart'] ?: '08:00:00')) / 3600, 1);
+    $expectedHours = round((strtotime($workEnd) - strtotime($workStart)) / 3600, 1);
     $hoursMsg = $workedHours >= $expectedHours
         ? "أكملت {$workedHours} ساعة من أصل {$expectedHours} المطلوبة ✅"
         : "سجّلت {$workedHours} ساعة فقط من أصل {$expectedHours} المطلوبة (ناقص " . round($expectedHours - $workedHours, 1) . " ساعة)";
+
+    // تعويض التأخير: لو حضر متأخر بس بقي بعد نهاية دوامه بنفس مقدار تأخيره (أو أكثر)، يُلغى خصم النقاط
+    if ($rec['status'] === 'late') {
+        $latenessSeconds = strtotime($rec['check_in']) - strtotime($workStart);
+        $extraStaySeconds = strtotime($time) - strtotime($workEnd);
+        if ($latenessSeconds > 0 && $extraStaySeconds >= $latenessSeconds) {
+            $s = $pdo->query("SELECT penalty_late FROM settings WHERE id = 1")->fetch();
+            $penalty = (int) $s['penalty_late'];
+            if ($penalty > 0) {
+                $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, ?)")
+                    ->execute([$user['id'], $penalty, 'تعويض التأخير بالبقاء وقتًا إضافيًا بعد الدوام']);
+            }
+            $lateMin = round($latenessSeconds / 60);
+            pushNotification(
+                $pdo, $user['id'],
+                "لاحظنا إنك تأخرت الصبح {$lateMin} دقيقة، بس عوّضتها بالبقاء بعد انتهاء دوامك اليوم 👏 — لهيك ما رح يتم خصم أي نقطة عليك هالمرة. خلّينا نحافظ على الالتزام بموعد الحضور قدر الإمكان بالمرات الجايّة.",
+                'points'
+            );
+        }
+    }
 
     pushNotification($pdo, $user['id'], "تم تسجيل انصرافك الساعة {$time}. {$hoursMsg}", 'checkout');
     return ['success' => true];
