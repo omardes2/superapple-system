@@ -146,7 +146,7 @@
 
   .section-title{font-size:13.5px;font-weight:800;margin-bottom:11px;display:flex;align-items:center;justify-content:space-between;}
   .subtab-nav{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;}
-  .subtab-btn{padding:8px 16px;border-radius:100px;font-size:12.5px;font-weight:700;background:var(--surface);border:1.5px solid var(--border);color:var(--text-muted);}
+  .subtab-btn{padding:7px 13px;border-radius:100px;font-size:12px;font-weight:700;background:var(--surface);border:1.5px solid var(--border);color:var(--text-muted);}
   .subtab-btn:hover{border-color:var(--accent);color:var(--text);}
   .subtab-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);}
 
@@ -167,6 +167,17 @@
 
   .tasks-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(270px, 1fr));gap:12px;}
   .task-card{border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;background:var(--surface);display:flex;flex-direction:column;}
+  .task-card-v2{border-radius:0 var(--radius-sm) var(--radius-sm) 0;}
+  .task-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;}
+  .task-card-head .task-open-link{margin-bottom:0;flex:1;min-width:0;}
+  .task-card-head .badge{flex:none;}
+  .task-info-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px;font-size:11.5px;color:var(--text-muted);margin-bottom:12px;}
+  .task-comment-count{color:var(--primary);font-weight:700;}
+  .task-assignee-line{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+  .task-assignee-names{font-size:11.5px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .task-client-name{font-size:10.5px;color:var(--text-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .task-card-menu-btn{background:none;border:none;font-size:14px;padding:4px 6px;cursor:pointer;opacity:0.45;border-radius:6px;}
+  .task-card-menu-btn:hover{opacity:1;background:var(--danger-tint);}
   .task-open-link{display:block;width:100%;text-align:right;background:none;border:none;padding:0;margin-bottom:10px;cursor:pointer;}
   .task-title{display:block;font-weight:800;font-size:13.5px;margin-bottom:4px;color:var(--text);}
   .task-desc{display:block;font-size:12px;color:var(--text-muted);line-height:1.6;}
@@ -306,7 +317,7 @@ let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
   clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
-  adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'all', reportFilter: { preset: 'thisMonth', from: '', to: '' },
+  adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'active', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
@@ -1744,8 +1755,9 @@ function employeeModal(){
 }
 
 function taskFilterTabs(list){
-  const tab = state.taskFilterTab || 'all';
+  const tab = state.taskFilterTab || 'active';
   const counts = {
+    active: list.filter(t=>taskStatus(t)!=='done').length,
     all: list.length,
     new: list.filter(t=>taskStatus(t)==='new').length,
     in_progress: list.filter(t=>taskStatus(t)==='in_progress').length,
@@ -1755,20 +1767,44 @@ function taskFilterTabs(list){
     late: list.filter(t=>taskStatus(t)==='late').length,
   };
   const tabs = [
-    {key:'all', label:'الكل'},
+    {key:'active', label:'⚡ النشطة'},
+    {key:'late', label:'🔴 متأخرة'},
     {key:'new', label:'🟠 لم تُستلم'},
     {key:'in_progress', label:'🔵 قيد التجهيز'},
     {key:'ready_for_review', label:'🟣 بانتظار المراجعة'},
     {key:'changes_requested', label:'🟡 تحتاج تعديل'},
     {key:'done', label:'🟢 منجزة'},
-    {key:'late', label:'🔴 متأخرة'},
+    {key:'all', label:'الكل'},
   ];
   return `<div class="subtab-nav">${tabs.map(x=>`<button class="subtab-btn ${tab===x.key?'active':''}" data-task-filter="${x.key}">${x.label} (${counts[x.key]})</button>`).join('')}</div>`;
 }
 function filterTasksByTab(list){
-  const tab = state.taskFilterTab || 'all';
-  if(tab==='all') return list;
-  return list.filter(t=>taskStatus(t)===tab);
+  const tab = state.taskFilterTab || 'active';
+  let filtered;
+  if(tab==='all') filtered = list;
+  else if(tab==='active') filtered = list.filter(t=>taskStatus(t)!=='done'); // كل شي مش منجز
+  else filtered = list.filter(t=>taskStatus(t)===tab);
+  return sortTasksByUrgency(filtered);
+}
+// ترتيب حسب الإلحاح: المتأخرة أولاً، ثم مستحقة اليوم، ثم الأقرب موعدًا، والمنجزة بالآخر دايمًا
+function sortTasksByUrgency(list){
+  const rank = (t)=>{
+    const s = taskStatus(t);
+    if(s==='done') return 5;
+    if(s==='late') return 0;
+    if(t.deadline && t.deadline.slice(0,10)===todayStr()) return 1;
+    if(s==='changes_requested') return 2;
+    if(s==='ready_for_review') return 3;
+    return 4;
+  };
+  return [...list].sort((a,b)=>{
+    const r = rank(a) - rank(b);
+    if(r!==0) return r;
+    if(a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline); // الأقرب موعدًا أولاً
+    if(a.deadline) return -1;
+    if(b.deadline) return 1;
+    return 0;
+  });
 }
 const TASK_COLORS = { new:'#F5A623', in_progress:'#2A5FCC', ready_for_review:'#6B3FD1', changes_requested:'#F5A623', done:'#1FAE7A', late:'#E5484D' };
 
@@ -1954,31 +1990,40 @@ function taskCard(t, adminView){
   const status = taskStatus(t);
   const statusKey = status==='done'?'done':status==='late'?'late_task':status;
   const color = TASK_COLORS[status] || TASK_COLORS.new;
-  const priorityIcon = t.priority==='high'?'🔴':t.priority==='medium'?'🟡':'⚪';
+  const priorityIcon = t.priority==='high'?'🔴':t.priority==='medium'?'🟡':'';
   const allDone = t.assignees.length>0 && t.assignees.every(a=>a.done);
   const myAssignee = t.assignees.find(a=>a.userId===state.currentUser.id);
   const needsAccept = myAssignee && !myAssignee.accepted && !myAssignee.done;
+  const assigneeNames = t.assignees.map(a=>{const u=state.users.find(u=>u.id===a.userId);return u?u.name:'';}).filter(Boolean);
+  const clientName = t.clientId ? (state.clients?.find(c=>c.id==t.clientId)?.name||'') : '';
+  const daysTxt = daysLeftText(t.deadline, allDone);
+  const comments = t.commentCount || 0;
+
   return `
-  <div class="task-card" style="border-top:4px solid ${color};">
-    <div class="task-card-topline">
+  <div class="task-card task-card-v2" style="border-right:3px solid ${color};">
+    <div class="task-card-head">
+      <button type="button" class="task-open-link" data-open-task="${t.id}">
+        <span class="task-title">${priorityIcon} ${t.title}</span>
+      </button>
       ${statusBadge(statusKey)}
-      <span style="font-size:11.5px;">${daysLeftText(t.deadline, allDone)}</span>
     </div>
-    <button type="button" class="task-open-link" data-open-task="${t.id}">
-      <span class="task-title">${priorityIcon} ${t.title}</span>
-      ${t.description?`<span class="task-desc">${t.description}</span>`:''}
-    </button>
-    <div class="task-meta">
-      ${t.category?`<span class="badge badge-muted">🏷️ ${t.category}</span>`:''}
-      ${t.clientId?`<span class="badge badge-muted">🏢 ${state.clients?.find(c=>c.id==t.clientId)?.name||''}</span>`:''}
-      ${t.deadline?`<span class="badge badge-muted">📅 ${fmtDate(t.deadline)}</span>`:''}
+
+    <div class="task-info-row">
+      ${t.deadline?`<span>📅 ${fmtDate(t.deadline)}</span>`:''}
+      ${daysTxt?`<span>${daysTxt}</span>`:''}
+      ${comments>0?`<span class="task-comment-count">💬 ${comments}</span>`:''}
+      ${t.category?`<span>🏷️ ${t.category}</span>`:''}
     </div>
+
     <div class="task-card-foot">
-      <span class="task-assignees-mini">👥 ${t.assignees.length>0?t.assignees.map(a=>{const u=state.users.find(u=>u.id===a.userId);return u?u.name.split(' ')[0]:'';}).join('، '):'بدون موظفين'}</span>
-      <div style="display:flex;gap:6px;">
-        ${adminView?`<button class="btn btn-danger btn-sm task-card-btn" data-remove-task="${t.id}">حذف</button>`:''}
+      <div class="task-assignee-line">
+        <span class="task-assignee-names">👥 ${assigneeNames.length>0?assigneeNames.join('، '):'بدون موظفين'}</span>
+        ${clientName?`<span class="task-client-name">🏢 ${clientName}</span>`:''}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex:none;">
         ${needsAccept?`<button class="btn btn-primary btn-sm task-card-btn" style="background:var(--success);" data-accept-task-card="${t.id}">استلام</button>`:''}
         <button class="btn btn-primary btn-sm task-card-btn" data-open-task="${t.id}">فتح</button>
+        ${adminView?`<button class="task-card-menu-btn" data-remove-task="${t.id}" title="حذف المهمة">🗑️</button>`:''}
       </div>
     </div>
   </div>`;

@@ -169,12 +169,18 @@ switch ($action) {
             }
 
             $tasks = $pdo->query("SELECT id, title, description, priority, status, category, deadline, client_id AS clientId, project_id AS projectId, requires_review AS requiresReview, review_note AS reviewNote, created_by AS createdBy, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
+            // عدد التعليقات لكل المهام باستعلام مجمّع واحد (تفاديًا لاستعلام منفصل لكل مهمة)
+            $commentCounts = [];
+            foreach ($pdo->query("SELECT task_id, COUNT(*) c FROM task_comments GROUP BY task_id")->fetchAll() as $row) {
+                $commentCounts[$row['task_id']] = (int) $row['c'];
+            }
             $aStmt = $pdo->prepare("SELECT user_id AS userId, accepted, accepted_at AS acceptedAt, done, completed_at AS completedAt FROM task_assignees WHERE task_id = ?");
             foreach ($tasks as &$t) {
                 $aStmt->execute([$t['id']]);
                 $rows = $aStmt->fetchAll();
                 foreach ($rows as &$r) { $r['done'] = (bool) $r['done']; $r['accepted'] = (bool) $r['accepted']; }
                 $t['assignees'] = $rows;
+                $t['commentCount'] = $commentCounts[$t['id']] ?? 0;
             }
             unset($t);
             if (!$isAdmin) {
