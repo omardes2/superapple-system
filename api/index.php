@@ -152,7 +152,7 @@ switch ($action) {
 
             $payload['clients'] = $pdo->query("SELECT id, name, contact_name AS contactName, phone, email, notes, created_at AS createdAt FROM clients ORDER BY name")->fetchAll();
 
-            $allProjects = $pdo->query("SELECT p.*, c.name AS clientName, u.name AS managerName FROM projects p LEFT JOIN clients c ON c.id = p.client_id LEFT JOIN users u ON u.id = p.manager_id ORDER BY p.created_at DESC")->fetchAll();
+            $allProjects = $pdo->query("SELECT p.id, p.client_id AS clientId, p.manager_id AS managerId, p.name, p.description, p.status, p.start_date AS startDate, p.due_date AS dueDate, p.default_requires_review AS defaultRequiresReview, p.progress_manual AS progressManual, p.notes, p.created_at AS createdAt, c.name AS clientName, u.name AS managerName FROM projects p LEFT JOIN clients c ON c.id = p.client_id LEFT JOIN users u ON u.id = p.manager_id ORDER BY p.created_at DESC")->fetchAll();
             foreach ($allProjects as &$pr) $pr['progress'] = computeProjectProgress($pdo, $pr['id'], $pr['progress_manual']);
             unset($pr);
             $payload['projects'] = $isAdmin ? $allProjects : array_values(array_filter($allProjects, fn($pr) => canAccessProject($pdo, $currentUser, $pr['id'])));
@@ -830,6 +830,18 @@ switch ($action) {
         $b = bodyInput();
         $projectId = $b['id'] ?? 0;
         if (!canManageProject($pdo, $user, $projectId)) respond(['error' => 'غير مسموح لك بحذف هذا المشروع'], 403);
+
+        // مرفقات المشروع بدون FK مباشر (Polymorphic) — لازم تنضيف يدويًا (قاعدة بيانات + ملفات فعلية) قبل الحذف
+        $stmt = $pdo->prepare("SELECT file_path FROM attachments WHERE entity_type = 'project' AND entity_id = ?");
+        $stmt->execute([$projectId]);
+        $uploadsRoot = realpath(__DIR__ . '/../uploads/');
+        foreach ($stmt->fetchAll() as $att) {
+            if (!$att['file_path']) continue;
+            $full = realpath(__DIR__ . '/../' . $att['file_path']);
+            if ($full && $uploadsRoot && strpos($full, $uploadsRoot) === 0 && file_exists($full)) @unlink($full);
+        }
+        $pdo->prepare("DELETE FROM attachments WHERE entity_type = 'project' AND entity_id = ?")->execute([$projectId]);
+
         $pdo->prepare("DELETE FROM projects WHERE id = ?")->execute([$projectId]);
         respond(['success' => true]);
     }
@@ -870,7 +882,7 @@ switch ($action) {
         $projectId = $b['id'] ?? 0;
         if (!canAccessProject($pdo, $user, $projectId)) respond(['error' => 'غير مسموح لك بالوصول لهذا المشروع'], 403);
 
-        $stmt = $pdo->prepare("SELECT p.*, c.name AS clientName, u.name AS managerName FROM projects p LEFT JOIN clients c ON c.id = p.client_id LEFT JOIN users u ON u.id = p.manager_id WHERE p.id = ?");
+        $stmt = $pdo->prepare("SELECT p.id, p.client_id AS clientId, p.manager_id AS managerId, p.name, p.description, p.status, p.start_date AS startDate, p.due_date AS dueDate, p.default_requires_review AS defaultRequiresReview, p.progress_manual AS progressManual, p.notes, p.created_at AS createdAt, c.name AS clientName, u.name AS managerName FROM projects p LEFT JOIN clients c ON c.id = p.client_id LEFT JOIN users u ON u.id = p.manager_id WHERE p.id = ?");
         $stmt->execute([$projectId]);
         $project = $stmt->fetch();
         if (!$project) respond(['error' => 'المشروع غير موجود'], 404);

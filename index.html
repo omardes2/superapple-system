@@ -150,6 +150,7 @@
   .badge-danger{background:var(--danger-tint);color:var(--danger);}
   .badge-primary{background:var(--primary-tint);color:var(--primary);}
   .badge-muted{background:var(--surface-2);color:var(--text-muted);}
+  .badge-review{background:#EFE7FF;color:#6B3FD1;}
   .badge-new{background:#FFF0DB;color:#C2660A;}
   .badge-inprogress{background:#E3ECFB;color:#2A5FCC;}
 
@@ -280,7 +281,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false,
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null,
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'all', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -331,6 +332,7 @@ function applyBootstrap(data){
   state.departments = data.departments || [];
   state.claims = data.claims || [];
   state.prompts = data.prompts || [];
+  state.projects = data.projects || [];
   state.leaveRequests = data.leaveRequests || [];
   state.tasks = (data.tasks || []).map(t => ({ ...t, assignees: (t.assignees||[]).map(a => ({ ...a, done: !!a.done })) }));
   state.attendance = data.attendance || [];
@@ -743,6 +745,7 @@ async function handleReviewLeave(id, status){
 
 /* ---------------- TASKS ---------------- */
 let selectedAssignees = [];
+let selectedProjectMembers = [];
 function openTaskModal(){ selectedAssignees = []; state.taskModal = true; state.adminTab = 'tasks'; render(); scrollToTaskForm(); }
 function scrollToTaskForm(){
   setTimeout(()=>{ document.getElementById('taskInlinePanel')?.scrollIntoView({behavior:'smooth', block:'start'}); }, 50);
@@ -758,7 +761,8 @@ async function handleCreateTask(e){
   const res = await apiPost('createTask', {
     title: f.title.value.trim(), description: f.description.value.trim(),
     priority: f.priority.value, deadline: f.deadline.value, assignees: selectedAssignees,
-    clientName: f.clientName.value.trim(), category: f.category.value.trim()
+    clientName: f.clientName.value.trim(), category: f.category.value.trim(),
+    projectId: f.projectId.value || null
   });
   if(res.error){ showToast(res.error); return; }
   state.taskModal = false;
@@ -766,8 +770,9 @@ async function handleCreateTask(e){
   showToast('تم إنشاء المهمة وإرسال الإشعارات');
 }
 function taskStatus(task){
-  const allDone = task.assignees.length>0 && task.assignees.every(a=>a.done);
-  if(allDone) return 'done';
+  if(task.status==='done') return 'done';
+  if(task.status==='ready_for_review') return 'ready_for_review';
+  if(task.status==='changes_requested') return 'changes_requested';
   if(task.deadline && task.deadline.slice(0,10) < todayStr()) return 'late';
   if(task.status==='in_progress') return 'in_progress';
   return 'new';
@@ -801,6 +806,137 @@ async function loadTaskComments(taskId){
   state.taskComments = res.comments || [];
   render();
 }
+
+/* ---------------- PHASE 1: TASK REVIEW WORKFLOW ---------------- */
+async function loadTaskStatusLog(taskId){
+  const res = await apiPost('taskStatusLog', { taskId });
+  state.taskStatusLog = res.log || [];
+  const el = document.getElementById('taskStatusLogArea');
+  if(el) el.innerHTML = taskStatusLogHtml();
+}
+async function handleSubmitForReview(taskId){
+  const res = await apiPost('submitForReview', { taskId });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  showToast('تم إرسال المهمة للمراجعة 📤');
+}
+async function handleApproveTask(taskId){
+  const res = await apiPost('approveTask', { taskId });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  showToast('تم اعتماد المهمة ✅');
+}
+async function handleRequestChanges(taskId){
+  const note = prompt('اكتب ملاحظة توضح التعديلات المطلوبة:');
+  if(note===null) return;
+  if(!note.trim()){ showToast('لازم تكتب ملاحظة'); return; }
+  const res = await apiPost('requestChanges', { taskId, note: note.trim() });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  showToast('تم إرجاع المهمة للتعديل');
+}
+async function handleResumeTask(taskId){
+  const res = await apiPost('resumeTask', { taskId });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  showToast('استأنفت العمل على المهمة');
+}
+
+/* ---------------- PHASE 1: ATTACHMENTS ---------------- */
+async function loadAttachments(entityType, entityId){
+  const res = await apiPost('entityAttachments', { entityType, entityId });
+  if(!state.attachmentsByEntity) state.attachmentsByEntity = {};
+  state.attachmentsByEntity[`${entityType}:${entityId}`] = res.attachments || [];
+  const el = document.getElementById(`attachmentsList-${entityType}-${entityId}`);
+  if(el){
+    const tmp = document.createElement('div');
+    tmp.innerHTML = attachmentsBlock(entityType, entityId);
+    el.outerHTML = tmp.firstElementChild.outerHTML;
+  }
+}
+async function handleUploadAttachment(form){
+  const entityType = form.getAttribute('data-entity-type');
+  const entityId = form.getAttribute('data-entity-id');
+  const fileInput = form.querySelector('[name="file"]');
+  const linkInput = form.querySelector('[name="linkUrl"]');
+  if(!fileInput.files[0] && !linkInput.value.trim()){ showToast('اختر ملفًا أو الصق رابطًا'); return; }
+  const fd = new FormData();
+  fd.append('entityType', entityType);
+  fd.append('entityId', entityId);
+  if(fileInput.files[0]) fd.append('file', fileInput.files[0]);
+  if(linkInput.value.trim()) fd.append('linkUrl', linkInput.value.trim());
+  const res = await apiUpload('uploadAttachment', fd);
+  if(res.error){ showToast(res.error); return; }
+  fileInput.value = ''; linkInput.value = '';
+  await loadAttachments(entityType, entityId);
+  showToast('تم رفع المرفق');
+}
+async function handleRemoveAttachment(id, entityType, entityId){
+  if(!confirm('حذف هذا المرفق؟')) return;
+  const res = await apiPost('removeAttachment', { id });
+  if(res.error){ showToast(res.error); return; }
+  await loadAttachments(entityType, entityId);
+  showToast('تم حذف المرفق');
+}
+
+/* ---------------- PHASE 1: PROJECTS ---------------- */
+async function handleCreateProject(e){
+  e.preventDefault();
+  const f = e.target;
+  const res = await apiPost('createProject', {
+    name: f.name.value.trim(), description: f.description.value.trim(),
+    clientId: f.clientId.value || null, managerId: f.managerId.value,
+    startDate: f.startDate.value || null, dueDate: f.dueDate.value || null,
+    defaultRequiresReview: f.defaultRequiresReview.checked,
+    memberIds: selectedProjectMembers
+  });
+  if(res.error){ showToast(res.error); return; }
+  state.projectModal = false;
+  selectedProjectMembers = [];
+  await refresh();
+  showToast('تم إنشاء المشروع');
+}
+async function loadProjectDetail(id){
+  state.openProjectId = id;
+  state.projectDetail = null;
+  render();
+  const res = await apiPost('projectDetail', { id });
+  if(res.error){ showToast(res.error); state.openProjectId = null; render(); return; }
+  state.projectDetail = res;
+  if(!state.attachmentsByEntity) state.attachmentsByEntity = {};
+  state.attachmentsByEntity[`project:${id}`] = res.attachments || [];
+  render();
+}
+async function handleSetProjectStatus(id, status){
+  const res = await apiPost('updateProject', { id, status });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  await loadProjectDetail(id);
+  showToast('تم تحديث حالة المشروع');
+}
+async function handleRemoveProject(id){
+  if(!confirm('هل أنت متأكد من حذف هذا المشروع نهائيًا؟ (المهام المرتبطة تبقى موجودة بدون مشروع)')) return;
+  const res = await apiPost('removeProject', { id });
+  if(res.error){ showToast(res.error); return; }
+  state.openProjectId = null;
+  state.projectDetail = null;
+  await refresh();
+  showToast('تم حذف المشروع');
+}
+async function handleAddProjectMember(projectId, userId){
+  if(!userId) return;
+  const res = await apiPost('addProjectMember', { id: projectId, userId });
+  if(res.error){ showToast(res.error); return; }
+  await loadProjectDetail(projectId);
+  showToast('تمت إضافة العضو');
+}
+async function handleRemoveProjectMember(projectId, userId){
+  const res = await apiPost('removeProjectMember', { id: projectId, userId });
+  if(res.error){ showToast(res.error); return; }
+  await loadProjectDetail(projectId);
+  showToast('تمت إزالة العضو');
+}
+
 async function handleRemoveTask(id){
   if(!confirm('هل أنت متأكد من حذف هذه المهمة نهائيًا؟')) return;
   const res = await apiPost('removeTask', { id });
@@ -985,6 +1121,7 @@ const ICONS = {
   claims: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 012-2h9l5 5v9a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"/><path d="M14 4v5h5"/><path d="M8 13h8M8 17h5"/></svg>`,
   teamchat: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v10H8l-4 4V5z"/><path d="M8 9h8M8 12h5"/></svg>`,
   prompts: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>`,
+  projects: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>`,
   attendance: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`,
   rewards: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v5a4 4 0 01-8 0V4z"/><path d="M8 6H5a2 2 0 002 4M16 6h3a2 2 0 01-2 4"/><path d="M12 13v3"/><path d="M9 20h6M10 16.5h4v3.5h-4z"/></svg>`,
   reports: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M9 13v4M12 11v6M15 15v2"/></svg>`,
@@ -1004,6 +1141,7 @@ function statusBadge(status){
   const map = {
     present:['حاضر','badge-success'], late:['متأخر','badge-warning'], absent:['غائب','badge-danger'],
     done:['منجزة','badge-success'], late_task:['متأخرة','badge-danger'], in_progress:['قيد التجهيز','badge-inprogress'], new:['مهمة جديدة','badge-new'],
+    ready_for_review:['بانتظار المراجعة','badge-review'], changes_requested:['تحتاج تعديل','badge-warning'],
     high:['عالية','badge-danger'], medium:['متوسطة','badge-warning'], low:['منخفضة','badge-muted']
   };
   const [label,cls] = map[status] || [status,'badge-muted'];
@@ -1020,6 +1158,7 @@ function renderAdmin(){
   const nav = [
     {key:'dashboard', icon:'dashboard', label:'نظرة عامة'},
     {key:'tasks', icon:'tasks', label:'المهام'},
+    {key:'projects', icon:'projects', label:'المشاريع'},
     {key:'clients', icon:'clients', label:'العملاء'},
     {key:'departments', icon:'departments', label:'الأقسام'},
     {key:'employees', icon:'employees', label:'الموظفون'},
@@ -1064,10 +1203,10 @@ function renderAdmin(){
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', prompts:'مكتبة البرومبتات', notifications:'سجل الإشعارات'}; }
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', projects:'المشاريع', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', prompts:'مكتبة البرومبتات', notifications:'سجل الإشعارات'}; }
 function adminSubs(){ return {
   dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
-  tasks:'إنشاء متابعة المهام الفردية والمشتركة', clients:'عملاء الوكالة وبيانات التواصل معهم', departments:'أقسام الشركة وتوزيع الموظفين عليها',
+  tasks:'إنشاء متابعة المهام الفردية والمشتركة', projects:'مشاريع الوكالة، فرقها، ونسبة إنجازها', clients:'عملاء الوكالة وبيانات التواصل معهم', departments:'أقسام الشركة وتوزيع الموظفين عليها',
   attendance:'حالة الحضور والانصراف، ومراجعة طلبات الإجازة',
   rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي',
   claims:'متابعة الحسابات والديون المستحقة على العملاء وإرسال تذكيرات',
@@ -1079,6 +1218,7 @@ function adminTabContent(){
     case 'dashboard': return adminDashboard();
     case 'employees': return adminEmployees();
     case 'tasks': return adminTasks();
+    case 'projects': return state.openProjectId ? projectDetailPage() : projectsListPage(true);
     case 'clients': return adminClients();
     case 'departments': return adminDepartments();
     case 'attendance': return adminAttendance();
@@ -1361,6 +1501,8 @@ function taskFilterTabs(list){
     all: list.length,
     new: list.filter(t=>taskStatus(t)==='new').length,
     in_progress: list.filter(t=>taskStatus(t)==='in_progress').length,
+    ready_for_review: list.filter(t=>taskStatus(t)==='ready_for_review').length,
+    changes_requested: list.filter(t=>taskStatus(t)==='changes_requested').length,
     done: list.filter(t=>taskStatus(t)==='done').length,
     late: list.filter(t=>taskStatus(t)==='late').length,
   };
@@ -1368,6 +1510,8 @@ function taskFilterTabs(list){
     {key:'all', label:'الكل'},
     {key:'new', label:'🟠 لم تُستلم'},
     {key:'in_progress', label:'🔵 قيد التجهيز'},
+    {key:'ready_for_review', label:'🟣 بانتظار المراجعة'},
+    {key:'changes_requested', label:'🟡 تحتاج تعديل'},
     {key:'done', label:'🟢 منجزة'},
     {key:'late', label:'🔴 متأخرة'},
   ];
@@ -1378,7 +1522,156 @@ function filterTasksByTab(list){
   if(tab==='all') return list;
   return list.filter(t=>taskStatus(t)===tab);
 }
-const TASK_COLORS = { new:'#F5A623', in_progress:'#2A5FCC', done:'#1FAE7A', late:'#E5484D' };
+const TASK_COLORS = { new:'#F5A623', in_progress:'#2A5FCC', ready_for_review:'#6B3FD1', changes_requested:'#F5A623', done:'#1FAE7A', late:'#E5484D' };
+
+/* ---------------- PHASE 1: PROJECTS ---------------- */
+const PROJECT_STATUS_MAP = {
+  new: ['🟠 جديد','badge-new'], active: ['🔵 قيد التنفيذ','badge-inprogress'], on_hold: ['⏸️ متوقف مؤقتًا','badge-warning'],
+  completed: ['🟢 مكتمل','badge-success'], cancelled: ['🔴 ملغي','badge-danger']
+};
+function projectProgress(p){
+  if(p.progressManual!==null && p.progressManual!==undefined) return p.progressManual;
+  const tasks = (state.tasks||[]).filter(t=>t.projectId==p.id);
+  if(tasks.length===0) return 0;
+  return Math.round((tasks.filter(t=>t.status==='done').length / tasks.length) * 100);
+}
+function progressBar(pct){
+  const color = pct>=100?'var(--success)':pct>=50?'var(--primary)':'var(--warning)';
+  return `<div style="background:var(--surface-2);border-radius:100px;height:8px;overflow:hidden;margin:8px 0;"><div style="width:${pct}%;height:100%;background:${color};border-radius:100px;"></div></div>`;
+}
+function projectsListPage(adminView){
+  const filter = state.projectFilterTab || 'all';
+  const all = state.projects || [];
+  const list = filter==='all' ? all : all.filter(p=>p.status===filter);
+  const tabs = [{k:'all',l:'الكل'},{k:'new',l:'🟠 جديد'},{k:'active',l:'🔵 قيد التنفيذ'},{k:'on_hold',l:'⏸️ متوقف'},{k:'completed',l:'🟢 مكتمل'},{k:'cancelled',l:'🔴 ملغي'}];
+  return `
+  <div class="section-title" style="margin-bottom:14px;">المشاريع (${all.length}) ${state.projectModal?'':'<button class="btn btn-primary btn-sm" id="openProjectModal">+ مشروع جديد</button>'}</div>
+  ${state.projectModal ? projectForm() : ''}
+  <div class="subtab-nav">${tabs.map(t=>`<button class="subtab-btn ${filter===t.k?'active':''}" data-project-filter="${t.k}">${t.l}</button>`).join('')}</div>
+  ${list.length===0?`<div class="card"><div class="empty">لا توجد مشاريع بهذا التصنيف بعد.</div></div>`:
+  `<div class="tasks-grid">${list.map(p=>projectCard(p)).join('')}</div>`}`;
+}
+function projectCard(p){
+  const [label,cls] = PROJECT_STATUS_MAP[p.status] || PROJECT_STATUS_MAP.new;
+  const pct = projectProgress(p);
+  const taskCount = (state.tasks||[]).filter(t=>t.projectId==p.id).length;
+  return `
+  <div class="card task-card" style="border-top:4px solid ${pct>=100?'#1FAE7A':'#6B3FD1'};cursor:pointer;" data-open-project="${p.id}">
+    <div class="task-card-topline">${statusBadge(p.status)}${p.dueDate?`<span style="font-size:11.5px;">${daysLeftText(p.dueDate, p.status==='completed')}</span>`:''}</div>
+    <div style="font-weight:800;font-size:14px;margin:8px 0 4px;">📁 ${p.name}</div>
+    ${p.clientName?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">🏢 ${p.clientName}</div>`:''}
+    <div style="font-size:11.5px;color:var(--text-faint);">المسؤول: ${p.managerName||'—'} · ${taskCount} مهمة</div>
+    ${progressBar(pct)}
+    <div style="text-align:left;font-size:11px;font-weight:700;color:var(--text-muted);">${pct}% منجز</div>
+  </div>`;
+}
+function projectForm(){
+  const employees = state.users.filter(u=>u.role==='employee' || u.role==='admin');
+  return `<div class="card" style="margin-bottom:16px;border-color:var(--accent);">
+    <div class="section-title">مشروع جديد <button type="button" class="btn btn-ghost btn-sm" id="closeProjectForm">إغلاق ✕</button></div>
+    <form id="projectForm">
+      <div class="field"><label>اسم المشروع</label><input name="name" required/></div>
+      <div class="field"><label>الوصف</label><textarea name="description" rows="2" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;"></textarea></div>
+      <div class="form-row">
+        <div class="field"><label>العميل (اختياري)</label>
+          <select name="clientId"><option value="">بدون عميل</option>${(state.clients||[]).map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>مسؤول المشروع</label>
+          <select name="managerId">${employees.map(e=>`<option value="${e.id}" ${e.id===state.currentUser.id?'selected':''}>${e.name}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>تاريخ البداية</label><input name="startDate" type="date"/></div>
+        <div class="field"><label>تاريخ التسليم</label><input name="dueDate" type="date"/></div>
+      </div>
+      <div class="field"><label>أعضاء الفريق</label>
+        <div class="chip-select" id="projectMembersChips">
+          ${employees.map(e=>`<button type="button" class="chip" data-project-member-chip="${e.id}">${e.name}</button>`).join('')}
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin:10px 0;">
+        <input type="checkbox" name="defaultRequiresReview" checked style="width:16px;height:16px;"/> مهام هذا المشروع تحتاج اعتماد المدير قبل الإغلاق (موصى به)
+      </label>
+      <button type="submit" class="btn btn-primary" style="width:100%;">إنشاء المشروع</button>
+    </form>
+  </div>`;
+}
+function projectDetailPage(){
+  const d = state.projectDetail;
+  if(!d) return `<div class="card"><div class="empty">جارِ التحميل...</div></div>`;
+  const p = d.project;
+  const me = state.currentUser;
+  const canManage = me.role==='admin' || p.managerId===me.id;
+  const pct = p.progress ?? 0;
+  return `
+  <button class="btn btn-ghost btn-sm" id="closeProjectDetail" style="margin-bottom:14px;">→ رجوع لكل المشاريع</button>
+  <div class="card" style="margin-bottom:16px;border-top:4px solid #6B3FD1;">
+    <div class="task-top">
+      <div style="flex:1;">
+        <h2 style="font-size:16px;font-weight:800;margin-bottom:6px;">📁 ${p.name}</h2>
+        ${p.description?`<p style="font-size:13px;color:var(--text-muted);line-height:1.7;">${p.description}</p>`:''}
+      </div>
+      ${statusBadge(p.status)}
+    </div>
+    <div class="task-meta" style="margin-top:12px;">
+      ${p.clientName?`<span class="badge badge-muted">🏢 ${p.clientName}</span>`:''}
+      <span class="badge badge-muted">👤 المسؤول: ${p.managerName||'—'}</span>
+      ${p.startDate?`<span class="badge badge-muted">🗓️ بداية: ${fmtDate(p.startDate)}</span>`:''}
+      ${p.dueDate?`<span class="badge badge-muted">📅 تسليم: ${fmtDate(p.dueDate)}</span>`:''}
+    </div>
+    <div style="margin-top:14px;">
+      <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;"><span>نسبة الإنجاز</span><span>${pct}%</span></div>
+      ${progressBar(pct)}
+    </div>
+    ${canManage ? `
+    <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <label style="font-size:12px;color:var(--text-muted);">تغيير الحالة:</label>
+      ${Object.keys(PROJECT_STATUS_MAP).map(s=>`<button class="btn btn-ghost btn-sm task-card-btn ${p.status===s?'active':''}" style="${p.status===s?'background:var(--primary);color:#fff;':''}" data-set-project-status="${p.id}|${s}">${PROJECT_STATUS_MAP[s][0]}</button>`).join('')}
+      <button class="btn btn-danger btn-sm task-card-btn" style="margin-right:auto;" data-remove-project="${p.id}">حذف المشروع</button>
+    </div>` : ''}
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="section-title">👥 أعضاء الفريق (${d.members.length})</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      ${d.members.map(m=>`<span class="badge badge-muted" style="display:flex;align-items:center;gap:6px;">${m.userName}${canManage && m.userId!==p.managerId?` <button data-remove-project-member="${p.id}|${m.userId}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-weight:800;">✕</button>`:''}</span>`).join('')}
+    </div>
+    ${canManage ? `
+    <div style="margin-top:10px;">
+      <select id="addMemberSelect" style="max-width:220px;display:inline-block;">
+        <option value="">+ إضافة عضو...</option>
+        ${state.users.filter(u=>(u.role==='employee'||u.role==='admin') && !d.members.some(m=>m.userId===u.id)).map(u=>`<option value="${u.id}">${u.name}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary btn-sm" id="addMemberBtn">إضافة</button>
+    </div>` : ''}
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="section-title">✅ مهام المشروع (${d.tasks.length})</div>
+    ${d.tasks.length===0?`<div class="empty">لا توجد مهام بعد لهذا المشروع</div>`:`
+    <div style="display:flex;flex-direction:column;gap:8px;">
+    ${d.tasks.map(t=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--surface-2);border-radius:8px;cursor:pointer;" data-open-task-from-project="${t.id}">
+        <span style="font-size:12.5px;font-weight:700;">${t.title}</span>
+        ${statusBadge(t.status==='done'?'done':t.status)}
+      </div>`).join('')}
+    </div>`}
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="section-title">📎 المرفقات</div>
+    ${attachmentsBlock('project', p.id)}
+  </div>
+
+  <div class="card">
+    <div class="section-title">🕓 سجل النشاط</div>
+    ${d.activity.length===0?`<div class="empty">لا يوجد نشاط بعد</div>`:d.activity.map(a=>`
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12px;">
+        <span style="color:var(--text-faint);white-space:nowrap;">${fmtDateTime(a.createdAt)}</span>
+        <span>${a.userName||'—'}: ${a.description||a.action}</span>
+      </div>`).join('')}
+  </div>`;
+}
 
 function adminTasks(){
   if(state.openTaskId){
@@ -1457,12 +1750,35 @@ function taskDetailPage(t){
 
   // كارت إجراء بارز يخص المستخدم الحالي بس
   let heroAction = '';
-  if(myAssignee && !myAssignee.done){
+  const canReview = me.role==='admin' || (t.projectId && state.projects?.find(p=>p.id==t.projectId)?.managerId===me.id);
+  if(t.status==='ready_for_review' && canReview){
+    heroAction = `
+    <div class="task-hero" style="background:#EFE7FF;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;">🟣 هاي المهمة بانتظار مراجعتك</div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" style="flex:1;background:var(--success);" data-approve-task="${t.id}">✅ اعتماد</button>
+        <button class="btn btn-primary" style="flex:1;background:var(--warning);" data-request-changes="${t.id}">↩️ طلب تعديل</button>
+      </div>
+    </div>`;
+  } else if(t.status==='changes_requested' && myAssignee){
+    heroAction = `
+    <div class="task-hero" style="background:var(--warning-tint);">
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px;">🟡 المدير طلب تعديل على هاي المهمة</div>
+      ${t.reviewNote?`<div style="font-size:12.5px;color:var(--text-muted);background:var(--surface);padding:8px 10px;border-radius:8px;margin-bottom:10px;">"${t.reviewNote}"</div>`:''}
+      <button class="btn btn-primary" style="width:100%;" data-resume-task="${t.id}">استئناف العمل عليها</button>
+    </div>`;
+  } else if(myAssignee && !myAssignee.done && t.status!=='ready_for_review'){
     if(!myAssignee.accepted){
       heroAction = `
       <div class="task-hero" style="background:var(--accent-tint);">
         <div style="font-size:13px;font-weight:700;margin-bottom:10px;">📥 هاي المهمة إلك — استلمها لتبلش الشغل عليها</div>
         <button class="btn btn-primary" style="width:100%;padding:13px;" data-accept-task="${t.id}">استلام المهمة</button>
+      </div>`;
+    } else if(t.requiresReview){
+      heroAction = `
+      <div class="task-hero" style="background:var(--success-tint);">
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px;">📤 لما تخلص، ابعتها للمراجعة (هاي المهمة تتبع مشروع، لازم اعتماد المدير)</div>
+        <button class="btn btn-primary" style="width:100%;padding:13px;background:#6B3FD1;" data-submit-review="${t.id}">إرسال للمراجعة</button>
       </div>`;
     } else {
       heroAction = `
@@ -1492,6 +1808,7 @@ function taskDetailPage(t){
       ${statusBadge(t.priority)}
       ${t.category?`<span class="badge badge-muted">🏷️ ${t.category}</span>`:''}
       ${t.clientId?`<span class="badge badge-muted">🏢 ${state.clients?.find(c=>c.id==t.clientId)?.name||''}</span>`:''}
+      ${t.projectId?`<button type="button" class="badge badge-review" style="border:none;cursor:pointer;" data-open-project="${t.projectId}">📁 ${state.projects?.find(p=>p.id==t.projectId)?.name||'مشروع'}</button>`:''}
       ${t.deadline?`<span class="badge badge-muted">📅 ${fmtDate(t.deadline)}</span>`:''}
       ${daysLeftText(t.deadline, allDone)?`<span>${daysLeftText(t.deadline, allDone)}</span>`:''}
     </div>
@@ -1545,7 +1862,53 @@ function taskDetailPage(t){
       <input name="message" placeholder="اكتب تعليقًا..." style="flex:1;padding:10px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-size:16px;" autocomplete="off" required/>
       <button type="submit" class="btn btn-primary btn-sm">إرسال</button>
     </form>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="section-title">📎 المرفقات</div>
+    ${attachmentsBlock('task', t.id)}
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="section-title">🕓 سجل الحالة</div>
+    <div id="taskStatusLogArea">${taskStatusLogHtml()}</div>
   </div>`;
+}
+
+// كتلة مرفقات مشتركة (تُستخدم بصفحة تفاصيل المهمة وصفحة تفاصيل المشروع معًا)
+function attachmentsBlock(entityType, entityId){
+  const items = (state.attachmentsByEntity && state.attachmentsByEntity[`${entityType}:${entityId}`]) || [];
+  const isImg = (t)=> t && t.startsWith('image/');
+  return `
+  <div id="attachmentsList-${entityType}-${entityId}">
+    ${items.length===0?`<div class="empty" style="padding:16px;">لا توجد مرفقات بعد</div>`:`
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+    ${items.map(a=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--surface-2);border-radius:8px;">
+        ${isImg(a.fileType)?`<img src="${a.filePath}" style="width:38px;height:38px;object-fit:cover;border-radius:6px;"/>`:'<span style="font-size:22px;">📄</span>'}
+        <div style="flex:1;min-width:0;">
+          <a href="${a.filePath||a.linkUrl}" target="_blank" style="font-size:12.5px;font-weight:700;color:var(--primary);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;">${a.fileName}</a>
+          <div style="font-size:10.5px;color:var(--text-faint);">${a.uploaderName||''} · ${fmtDateTime(a.createdAt)}${a.versionLabel?` · ${a.versionLabel}`:''}</div>
+        </div>
+        <button class="btn btn-danger btn-sm task-card-btn" data-remove-attachment="${a.id}|${entityType}|${entityId}">حذف</button>
+      </div>`).join('')}
+    </div>`}
+  </div>
+  <form class="attachment-upload-form" data-entity-type="${entityType}" data-entity-id="${entityId}" style="display:flex;gap:8px;flex-wrap:wrap;">
+    <input type="file" name="file" style="flex:1;min-width:160px;font-size:12.5px;"/>
+    <input type="text" name="linkUrl" placeholder="أو الصق رابط خارجي (Google Drive...)" style="flex:1;min-width:160px;padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface-2);font-size:12.5px;"/>
+    <button type="submit" class="btn btn-primary btn-sm">رفع</button>
+  </form>`;
+}
+function taskStatusLogHtml(){
+  const log = state.taskStatusLog || [];
+  if(log.length===0) return `<div class="empty">لا يوجد سجل بعد</div>`;
+  const labels = {new:'جديدة', in_progress:'قيد التجهيز', ready_for_review:'بانتظار المراجعة', changes_requested:'تحتاج تعديل', done:'منجزة'};
+  return log.map(l=>`
+    <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12px;">
+      <span style="color:var(--text-faint);white-space:nowrap;">${fmtDateTime(l.createdAt)}</span>
+      <span>${l.userName||'—'} غيّر الحالة من <b>${labels[l.fromStatus]||l.fromStatus||'—'}</b> إلى <b>${labels[l.toStatus]||l.toStatus}</b>${l.note?`<br><span style="color:var(--text-muted);">"${l.note}"</span>`:''}</span>
+    </div>`).join('');
 }
 
 function hoursDiff(t1, t2){
@@ -2164,6 +2527,12 @@ function taskInlineForm(){
         <input name="clientName" id="clientNameInput" placeholder="ابحث أو اكتب اسم الشركة..." autocomplete="off"/>
         <div class="combo-dropdown" id="clientSuggestions"></div>
       </div>
+      <div class="field"><label>المشروع (اختياري)</label>
+        <select name="projectId">
+          <option value="">بدون مشروع</option>
+          ${(state.projects||[]).filter(p=>p.status!=='completed'&&p.status!=='cancelled').map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+        </select>
+      </div>
       <div class="field"><label>إسناد إلى (يمكن اختيار أكثر من موظف)</label>
         <div class="chip-select">
           ${employees.length===0?'<span style="font-size:12.5px;color:var(--text-faint)">أضف موظفين أولًا</span>':
@@ -2182,6 +2551,7 @@ function renderEmployee(){
   const nav = [
     {key:'dashboard', icon:'home', label:'الرئيسية'},
     {key:'tasks', icon:'tasks', label:'مهامي'},
+    {key:'projects', icon:'projects', label:'مشاريعي'},
     {key:'attendance', icon:'attendance', label:'دوامي وإجازاتي'},
     {key:'points', icon:'rewards', label:'نقاطي'},
     {key:'report', icon:'reports', label:'تقريري الشهري'},
@@ -2215,9 +2585,9 @@ function renderEmployee(){
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', attendance:'دوامي وإجازاتي', points:'نقاطي وترتيبي', report:'تقريري الشهري', claims:'تذكيرات المطالبات المالية', prompts:'مكتبة البرومبتات', notifications:'الإشعارات'}; }
+function empTitles(){ return {dashboard:`أهلًا، ${state.currentUser.name.split(' ')[0]} 👋`, tasks:'مهامي', projects:'مشاريعي', attendance:'دوامي وإجازاتي', points:'نقاطي وترتيبي', report:'تقريري الشهري', claims:'تذكيرات المطالبات المالية', prompts:'مكتبة البرومبتات', notifications:'الإشعارات'}; }
 function empSubs(){ return {
-  dashboard:'نظرة سريعة على يومك', tasks:'المهام المسندة لك بشكل فردي أو مشترك',
+  dashboard:'نظرة سريعة على يومك', tasks:'المهام المسندة لك بشكل فردي أو مشترك', projects:'المشاريع اللي أنت عضو فيها أو مسؤول عنها',
   attendance:'سجل حضورك وانصرافك، وطلب إجازة جديدة', points:'رصيدك من النقاط وترتيبك بين الفريق',
   report:'أداؤك خلال الشهر الحالي', claims:'إضافة مطالبات، تسجيل دفعات، وإرسال تذكيرات واتساب', prompts:'مكتبة برومبتات مشتركة لكل الفريق', notifications:'كل التنبيهات الخاصة بك'
 }; }
@@ -2226,6 +2596,7 @@ function empTabContent(){
   switch(state.empTab){
     case 'dashboard': return empDashboard();
     case 'tasks': return empTasks();
+    case 'projects': return state.openProjectId ? projectDetailPage() : projectsListPage(false);
     case 'attendance': return empAttendance();
     case 'points': return empPoints();
     case 'report': return empReport();
@@ -2522,6 +2893,50 @@ function attachAppEvents(){
   document.getElementById('closeTaskModal')?.addEventListener('click', ()=>{ state.taskModal=false; render(); });
   document.getElementById('taskForm')?.addEventListener('submit', handleCreateTask);
 
+  document.getElementById('openProjectModal')?.addEventListener('click', ()=>{ selectedProjectMembers=[]; state.projectModal=true; render(); });
+  document.getElementById('closeProjectForm')?.addEventListener('click', ()=>{ state.projectModal=false; render(); });
+  document.getElementById('projectForm')?.addEventListener('submit', handleCreateProject);
+  document.querySelectorAll('[data-project-member-chip]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const id = parseInt(el.getAttribute('data-project-member-chip'));
+      const idx = selectedProjectMembers.indexOf(id);
+      if(idx===-1){ selectedProjectMembers.push(id); el.classList.add('sel'); }
+      else { selectedProjectMembers.splice(idx,1); el.classList.remove('sel'); }
+    });
+  });
+  document.querySelectorAll('[data-project-filter]').forEach(el=>{
+    el.addEventListener('click', ()=>{ state.projectFilterTab = el.getAttribute('data-project-filter'); render(); });
+  });
+  document.querySelectorAll('[data-open-project]').forEach(el=>{
+    el.addEventListener('click', ()=>{ loadProjectDetail(el.getAttribute('data-open-project')); window.scrollTo({top:0, behavior:'smooth'}); });
+  });
+  document.getElementById('closeProjectDetail')?.addEventListener('click', ()=>{ state.openProjectId=null; state.projectDetail=null; render(); });
+  document.querySelectorAll('[data-set-project-status]').forEach(el=>{
+    el.addEventListener('click', ()=>{ const [id,status] = el.getAttribute('data-set-project-status').split('|'); handleSetProjectStatus(id,status); });
+  });
+  document.querySelectorAll('[data-remove-project]').forEach(el=>{
+    el.addEventListener('click', ()=> handleRemoveProject(el.getAttribute('data-remove-project')));
+  });
+  document.querySelectorAll('[data-remove-project-member]').forEach(el=>{
+    el.addEventListener('click', ()=>{ const [pid,uid] = el.getAttribute('data-remove-project-member').split('|'); handleRemoveProjectMember(pid,uid); });
+  });
+  document.getElementById('addMemberBtn')?.addEventListener('click', ()=>{
+    const sel = document.getElementById('addMemberSelect');
+    if(sel && sel.value) handleAddProjectMember(state.openProjectId, sel.value);
+  });
+  document.querySelectorAll('[data-open-task-from-project]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const id = el.getAttribute('data-open-task-from-project');
+      state.openProjectId = null; state.projectDetail = null;
+      if(state.currentUser.role==='admin') state.adminTab='tasks'; else state.empTab='tasks';
+      state.openTaskId = id;
+      state.taskStatusLog = [];
+      render();
+      loadTaskComments(id); loadTaskStatusLog(id); loadAttachments('task', id);
+      window.scrollTo({top:0, behavior:'smooth'});
+    });
+  });
+
   const clientInput = document.getElementById('clientNameInput');
   const clientDropdown = document.getElementById('clientSuggestions');
   if(clientInput && clientDropdown){
@@ -2567,17 +2982,41 @@ function attachAppEvents(){
     el.addEventListener('click', ()=>{
       const id = el.getAttribute('data-open-task');
       state.openTaskId = id;
+      state.taskStatusLog = [];
       render();
       loadTaskComments(id);
+      loadTaskStatusLog(id);
+      loadAttachments('task', id);
       window.scrollTo({top:0, behavior:'smooth'});
     });
   });
-  document.getElementById('closeTaskDetail')?.addEventListener('click', ()=>{ state.openTaskId = null; state.taskComments = []; render(); });
+  document.getElementById('closeTaskDetail')?.addEventListener('click', ()=>{ state.openTaskId = null; state.taskComments = []; state.taskStatusLog = []; render(); });
   document.querySelectorAll('[data-accept-task]').forEach(el=>{
     el.addEventListener('click', ()=> acceptTask(el.getAttribute('data-accept-task')));
   });
   document.querySelectorAll('[data-accept-task-card]').forEach(el=>{
     el.addEventListener('click', (e)=>{ e.stopPropagation(); acceptTask(el.getAttribute('data-accept-task-card')); });
+  });
+  document.querySelectorAll('[data-submit-review]').forEach(el=>{
+    el.addEventListener('click', ()=> handleSubmitForReview(el.getAttribute('data-submit-review')));
+  });
+  document.querySelectorAll('[data-approve-task]').forEach(el=>{
+    el.addEventListener('click', ()=> handleApproveTask(el.getAttribute('data-approve-task')));
+  });
+  document.querySelectorAll('[data-request-changes]').forEach(el=>{
+    el.addEventListener('click', ()=> handleRequestChanges(el.getAttribute('data-request-changes')));
+  });
+  document.querySelectorAll('[data-resume-task]').forEach(el=>{
+    el.addEventListener('click', ()=> handleResumeTask(el.getAttribute('data-resume-task')));
+  });
+  document.querySelectorAll('.attachment-upload-form').forEach(el=>{
+    el.addEventListener('submit', (e)=>{ e.preventDefault(); handleUploadAttachment(el); });
+  });
+  document.querySelectorAll('[data-remove-attachment]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const [id, entityType, entityId] = el.getAttribute('data-remove-attachment').split('|');
+      handleRemoveAttachment(id, entityType, entityId);
+    });
   });
   document.querySelectorAll('[data-complete-task]').forEach(el=>{
     el.addEventListener('click', ()=>{ const [tid,uid] = el.getAttribute('data-complete-task').split('|'); completeTaskAssignee(tid,uid); });
