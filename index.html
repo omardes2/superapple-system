@@ -805,9 +805,8 @@ async function handleCreateTask(e){
   if(selectedAssignees.length===0){ showToast('اختر موظف واحد على الأقل'); return; }
   const res = await apiPost('createTask', {
     title: f.title.value.trim(), description: f.description.value.trim(),
-    priority: f.priority.value, deadline: f.deadline.value, assignees: selectedAssignees,
-    clientName: f.clientName.value.trim(), category: f.category.value.trim(),
-    projectId: f.projectId.value || null
+    priority: 'medium', deadline: f.deadline.value, assignees: selectedAssignees,
+    clientName: f.clientName.value.trim(), category: f.category.value.trim()
   });
   if(res.error){ showToast(res.error); return; }
   state.taskModal = false;
@@ -1990,7 +1989,6 @@ function taskCard(t, adminView){
   const status = taskStatus(t);
   const statusKey = status==='done'?'done':status==='late'?'late_task':status;
   const color = TASK_COLORS[status] || TASK_COLORS.new;
-  const priorityIcon = t.priority==='high'?'🔴':t.priority==='medium'?'🟡':'';
   const allDone = t.assignees.length>0 && t.assignees.every(a=>a.done);
   const myAssignee = t.assignees.find(a=>a.userId===state.currentUser.id);
   const needsAccept = myAssignee && !myAssignee.accepted && !myAssignee.done;
@@ -2003,7 +2001,7 @@ function taskCard(t, adminView){
   <div class="task-card task-card-v2" style="border-right:3px solid ${color};">
     <div class="task-card-head">
       <button type="button" class="task-open-link" data-open-task="${t.id}">
-        <span class="task-title">${priorityIcon} ${t.title}</span>
+        <span class="task-title">${t.title}</span>
       </button>
       ${statusBadge(statusKey)}
     </div>
@@ -2098,7 +2096,6 @@ function taskDetailPage(t){
       ${statusBadge(statusKey)}
     </div>
     <div class="task-meta" style="margin-top:12px;">
-      ${statusBadge(t.priority)}
       ${t.category?`<span class="badge badge-muted">🏷️ ${t.category}</span>`:''}
       ${t.clientId?`<span class="badge badge-muted">🏢 ${state.clients?.find(c=>c.id==t.clientId)?.name||''}</span>`:''}
       ${t.projectId?`<button type="button" class="badge badge-review" style="border:none;cursor:pointer;" data-open-project="${t.projectId}">📁 ${state.projects?.find(p=>p.id==t.projectId)?.name||'مشروع'}</button>`:''}
@@ -2814,10 +2811,7 @@ function taskInlineForm(){
     <form id="taskForm">
       <div class="field"><label>عنوان المهمة</label><input name="title" required/></div>
       <div class="field"><label>الوصف</label><textarea name="description" rows="3" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;"></textarea></div>
-      <div class="form-row">
-        <div class="field"><label>الأولوية</label><select name="priority"><option value="medium">متوسطة</option><option value="high">عالية</option><option value="low">منخفضة</option></select></div>
-        <div class="field"><label>الموعد النهائي</label><input name="deadline" type="date" required/></div>
-      </div>
+      <div class="field"><label>الموعد النهائي</label><input name="deadline" type="date" required/></div>
       <div class="field">
         <label>تصنيف المهمة (اختياري)</label>
         <input name="category" list="categoriesDatalist" placeholder="مثال: تصميم، محتوى، إعلانات..." autocomplete="off"/>
@@ -2829,12 +2823,6 @@ function taskInlineForm(){
         <label>الشركة / العميل (اختياري — اكتب اسمًا موجودًا أو جديدًا)</label>
         <input name="clientName" id="clientNameInput" placeholder="ابحث أو اكتب اسم الشركة..." autocomplete="off"/>
         <div class="combo-dropdown" id="clientSuggestions"></div>
-      </div>
-      <div class="field"><label>المشروع (اختياري)</label>
-        <select name="projectId">
-          <option value="">بدون مشروع</option>
-          ${(state.projects||[]).filter(p=>p.status!=='completed'&&p.status!=='cancelled').map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
-        </select>
       </div>
       <div class="field"><label>إسناد إلى (يمكن اختيار أكثر من موظف)</label>
         <div class="chip-select">
