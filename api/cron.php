@@ -29,25 +29,26 @@ $today = date('Y-m-d');
 
 /* ============================================================
    الرسائل التحفيزية اليومية
-   موظف واحد فقط كل يوم (بالتناوب) — مو كل الفريق.
+   عدد محدد من الموظفين كل يوم (يُضبط من اللوحة) بالتناوب — مو كل الفريق.
    الاختيار: الأقدم استلامًا أولًا، فيدور الدور على الكل بالعدل.
    الرسالة نفسها: يفضّل وحدة ما استلمها هذا الموظف من قبل إطلاقًا.
    ============================================================ */
 $motivSent = 0;
 try {
-    $ms = $pdo->query("SELECT motivation_enabled, motivation_delay_minutes FROM settings WHERE id = 1")->fetch();
+    $ms = $pdo->query("SELECT motivation_enabled, motivation_delay_minutes, motivation_daily_count FROM settings WHERE id = 1")->fetch();
     if ($ms && (int) $ms['motivation_enabled']) {
         $delayMin = max(0, (int) $ms['motivation_delay_minutes']);
+        $dailyCount = max(1, min(50, (int) ($ms['motivation_daily_count'] ?? 2)));
 
-        // هل انبعتت رسالة لأي حدا اليوم أصلًا؟ لو آه، خلص — موظف واحد باليوم فقط
+        // كم واحد استلم اليوم أصلًا؟ الباقي فقط هو اللي منرسله
         $sentToday = $pdo->prepare("SELECT COUNT(*) c FROM motivation_log WHERE sent_date = ?");
         $sentToday->execute([$today]);
-        $alreadySentToday = (int) $sentToday->fetch()['c'] > 0;
+        $remaining = $dailyCount - (int) $sentToday->fetch()['c'];
 
         $dueUsers = [];
-        if (!$alreadySentToday) {
-            // نختار موظفًا واحدًا: مؤهل (سجّل حضور ومرّت المدة وعنده رقم)،
-            // والأولوية للأقدم استلامًا لرسالة تحفيزية (واللي ما استلم أبدًا يجي أولًا)
+        if ($remaining > 0) {
+            // نختار الموظفين المؤهلين (سجّل حضور، مرّت المدة، عنده رقم، وما استلم اليوم)،
+            // والأولوية للأقدم استلامًا (واللي ما استلم أبدًا يجي أولًا) — تناوب عادل
             $stmt = $pdo->prepare("
                 SELECT a.user_id, u.name, u.phone,
                        (SELECT MAX(ml.sent_date) FROM motivation_log ml WHERE ml.user_id = a.user_id) AS lastSent
@@ -57,10 +58,11 @@ try {
                   AND a.check_in IS NOT NULL
                   AND u.phone IS NOT NULL AND u.phone != ''
                   AND ADDTIME(a.check_in, SEC_TO_TIME(? * 60)) <= CURTIME()
+                  AND NOT EXISTS (SELECT 1 FROM motivation_log ml2 WHERE ml2.user_id = a.user_id AND ml2.sent_date = ?)
                 ORDER BY lastSent IS NOT NULL, lastSent ASC, RAND()
-                LIMIT 1
+                LIMIT " . (int) $remaining . "
             ");
-            $stmt->execute([$today, $delayMin]);
+            $stmt->execute([$today, $delayMin, $today]);
             $dueUsers = $stmt->fetchAll();
         }
 

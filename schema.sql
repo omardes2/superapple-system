@@ -267,6 +267,26 @@ CREATE TABLE IF NOT EXISTS prompts (
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS motivation_messages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  message TEXT NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS motivation_log (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  message_id INT DEFAULT NULL,
+  sent_date DATE NOT NULL,
+  success TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (message_id) REFERENCES motivation_messages(id) ON DELETE SET NULL,
+  UNIQUE KEY user_day (user_id, sent_date),
+  INDEX idx_user_msg (user_id, message_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS webauthn_credentials (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
@@ -295,7 +315,10 @@ CREATE TABLE IF NOT EXISTS settings (
   geofence_enabled TINYINT(1) NOT NULL DEFAULT 0,
   office_latitude DECIMAL(10,7) DEFAULT NULL,
   office_longitude DECIMAL(10,7) DEFAULT NULL,
-  geofence_radius INT NOT NULL DEFAULT 200
+  geofence_radius INT NOT NULL DEFAULT 200,
+  motivation_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  motivation_delay_minutes INT NOT NULL DEFAULT 60,
+  motivation_daily_count INT NOT NULL DEFAULT 2
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO settings (id) VALUES (1)

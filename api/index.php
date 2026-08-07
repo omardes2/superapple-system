@@ -147,7 +147,7 @@ switch ($action) {
             whatsapp_verify_token AS whatsappVerifyToken, whatsapp_app_secret AS whatsappAppSecret,
             geofence_enabled AS geofenceEnabled, office_latitude AS officeLatitude,
             office_longitude AS officeLongitude, geofence_radius AS geofenceRadius,
-            motivation_enabled AS motivationEnabled, motivation_delay_minutes AS motivationDelayMinutes
+            motivation_enabled AS motivationEnabled, motivation_delay_minutes AS motivationDelayMinutes, motivation_daily_count AS motivationDailyCount
             FROM settings WHERE id = 1")->fetch();
 
         $payload = ['hasUsers' => $hasUsers, 'currentUser' => $currentUser, 'settings' => $settingsRow ?: null];
@@ -627,12 +627,13 @@ switch ($action) {
         $b = bodyInput();
         $enabled = !empty($b['enabled']) ? 1 : 0;
         $delay = max(0, min(600, (int) ($b['delayMinutes'] ?? 60)));
+        $dailyCount = max(1, min(50, (int) ($b['dailyCount'] ?? 2)));
         if ($enabled) {
             $has = $pdo->query("SELECT COUNT(*) c FROM motivation_messages WHERE is_active = 1")->fetch();
             if (!(int) $has['c']) respond(['error' => 'أضف رسالة واحدة مفعّلة على الأقل قبل التفعيل'], 400);
         }
-        $pdo->prepare("UPDATE settings SET motivation_enabled = ?, motivation_delay_minutes = ? WHERE id = 1")
-            ->execute([$enabled, $delay]);
+        $pdo->prepare("UPDATE settings SET motivation_enabled = ?, motivation_delay_minutes = ?, motivation_daily_count = ? WHERE id = 1")
+            ->execute([$enabled, $delay, $dailyCount]);
         respond(['success' => true]);
     }
 
