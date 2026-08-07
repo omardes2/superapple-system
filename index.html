@@ -204,7 +204,6 @@
   .pwa-banner{position:fixed;bottom:16px;left:16px;right:16px;max-width:520px;margin:0 auto;z-index:300;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 28px rgba(0,0,0,0.18);padding:12px 14px;display:flex;align-items:center;gap:12px;}
   .pwa-banner-icon{width:42px;height:42px;border-radius:10px;flex:none;border:1px solid var(--border);}
   .pwa-banner-close{background:none;border:none;font-size:15px;color:var(--text-faint);cursor:pointer;padding:4px 8px;}
-  @media(max-width:860px){ .pwa-banner{bottom:88px;} }
   .team-chat-widget{position:fixed;bottom:22px;left:22px;z-index:150;display:flex;flex-direction:column;align-items:flex-start;gap:12px;}
   .team-chat-bubble-btn{position:relative;width:58px;height:58px;border-radius:50%;background:var(--primary);color:#fff;font-size:24px;box-shadow:0 6px 20px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;flex:none;overflow:visible;border:none;padding:0;}
   .team-chat-bubble-btn img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
@@ -217,7 +216,8 @@
   .team-chat-panel-foot{flex:none;display:flex;gap:8px;padding:10px;border-top:1px solid var(--border);}
   .team-chat-panel-foot input{flex:1;padding:9px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-size:16px;}
   @media(max-width:860px){
-    .team-chat-widget{bottom:16px;left:16px;}
+    .team-chat-widget{bottom:calc(16px + env(safe-area-inset-bottom));left:16px;}
+    .pwa-banner{bottom:calc(88px + env(safe-area-inset-bottom));}
     .team-chat-panel{width:calc(100vw - 32px);height:60vh;}
   }
   .task-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
@@ -286,13 +286,13 @@
   /* ===== موبايل: قائمة منسدلة بدل السايدبار الثابت ===== */
   @media(max-width:860px){
     .shell{flex-direction:column;}
-    .mobile-topbar{display:flex;align-items:center;justify-content:space-between;background:#17130E;padding:12px 16px;position:sticky;top:0;z-index:60;}
+    .mobile-topbar{display:flex;align-items:center;justify-content:space-between;background:#17130E;padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));position:sticky;top:0;z-index:60;}
     .mobile-topbar .brand{margin-bottom:0;}
     .mobile-topbar .brand-name{color:#fff;font-size:14px;}
     .mobile-topbar .brand-name span{color:var(--accent);}
     .mobile-topbar .brand-tagline{display:none;}
     .hamburger-btn{width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;font-size:18px;}
-    .sidebar{position:fixed;top:0;right:0;height:100vh;width:78vw;max-width:300px;z-index:80;transform:translateX(100%);transition:transform .25s ease;box-shadow:-8px 0 24px rgba(0,0,0,0.25);}
+    .sidebar{position:fixed;top:0;right:0;height:100vh;width:78vw;max-width:300px;z-index:80;transform:translateX(100%);transition:transform .25s ease;box-shadow:-8px 0 24px rgba(0,0,0,0.25);padding-top:calc(16px + env(safe-area-inset-top));overflow-y:auto;}
     .sidebar.mobile-open{transform:translateX(0);}
     .sidebar .brand{display:none;}
     .mobile-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:70;}
