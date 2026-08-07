@@ -2,8 +2,17 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>سوبر آبل | نظام إدارة الفريق</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#201C1D">
+<link rel="icon" type="image/png" href="assets/icons/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="سوبر آبل">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -192,6 +201,10 @@
   .chat-bubble-text{font-size:13px;line-height:1.6;}
   .chat-bubble-time{font-size:10px;color:var(--text-faint);margin-top:4px;}
 
+  .pwa-banner{position:fixed;bottom:16px;left:16px;right:16px;max-width:520px;margin:0 auto;z-index:300;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 28px rgba(0,0,0,0.18);padding:12px 14px;display:flex;align-items:center;gap:12px;}
+  .pwa-banner-icon{width:42px;height:42px;border-radius:10px;flex:none;border:1px solid var(--border);}
+  .pwa-banner-close{background:none;border:none;font-size:15px;color:var(--text-faint);cursor:pointer;padding:4px 8px;}
+  @media(max-width:860px){ .pwa-banner{bottom:88px;} }
   .team-chat-widget{position:fixed;bottom:22px;left:22px;z-index:150;display:flex;flex-direction:column;align-items:flex-start;gap:12px;}
   .team-chat-bubble-btn{position:relative;width:58px;height:58px;border-radius:50%;background:var(--primary);color:#fff;font-size:24px;box-shadow:0 6px 20px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;flex:none;overflow:visible;border:none;padding:0;}
   .team-chat-bubble-btn img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
@@ -3516,6 +3529,74 @@ function attachAppEvents(){
     setTimeout(renderDashboardCharts, 0);
   }
 }
+
+/* ---------------- PWA: تثبيت التطبيق على الجوال ---------------- */
+let deferredInstallPrompt = null;
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('service-worker.js').catch(()=>{ /* لا يمنع عمل الموقع لو فشل */ });
+  });
+}
+
+// أندرويد/كروم: المتصفح بيعطينا فرصة نعرض زر تثبيت مخصص
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  showInstallBanner('android');
+});
+
+function isRunningStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function isIOS(){
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+function installBannerDismissed(){
+  try{ return localStorage.getItem('sa_install_dismissed') === '1'; }catch(e){ return false; }
+}
+
+function showInstallBanner(platform){
+  if(isRunningStandalone() || installBannerDismissed()) return;
+  if(document.getElementById('pwaInstallBanner')) return;
+
+  const isApple = platform === 'ios';
+  const el = document.createElement('div');
+  el.id = 'pwaInstallBanner';
+  el.className = 'pwa-banner';
+  el.innerHTML = `
+    <img src="assets/icons/icon-192.png" alt="" class="pwa-banner-icon"/>
+    <div style="flex:1;min-width:0;">
+      <div style="font-weight:800;font-size:13px;">ثبّت سوبر آبل على جوالك</div>
+      <div style="font-size:11.5px;color:var(--text-muted);line-height:1.6;">
+        ${isApple
+          ? 'دوس زر المشاركة <b>⬆️</b> بأسفل سفاري، ثم اختر <b>«إضافة إلى الشاشة الرئيسية»</b>'
+          : 'افتحه كتطبيق مستقل بضغطة وحدة، بدون متجر تطبيقات'}
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;flex:none;align-items:center;">
+      ${isApple ? '' : '<button class="btn btn-primary btn-sm" id="pwaInstallBtn">تثبيت</button>'}
+      <button class="pwa-banner-close" id="pwaDismissBtn" aria-label="إغلاق">✕</button>
+    </div>`;
+  document.body.appendChild(el);
+
+  document.getElementById('pwaInstallBtn')?.addEventListener('click', async ()=>{
+    if(!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    el.remove();
+  });
+  document.getElementById('pwaDismissBtn')?.addEventListener('click', ()=>{
+    try{ localStorage.setItem('sa_install_dismissed','1'); }catch(e){}
+    el.remove();
+  });
+}
+
+// آيفون: ما فيه حدث تلقائي، فبنعرض التعليمات يدويًا بعد ما يسجل الدخول
+setTimeout(()=>{
+  if(isIOS() && !isRunningStandalone() && state.currentUser) showInstallBanner('ios');
+}, 3000);
 
 init();
 </script>
