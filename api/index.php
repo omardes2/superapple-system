@@ -151,6 +151,11 @@ switch ($action) {
             $payload['users'] = $pdo->query("SELECT id, name, email, role, department, phone, work_start AS workStart, work_end AS workEnd, join_date AS joinDate, can_send_claims AS canSendClaims FROM users")->fetchAll();
 
             $payload['clients'] = $pdo->query("SELECT id, name, contact_name AS contactName, phone, email, notes, created_at AS createdAt FROM clients ORDER BY name")->fetchAll();
+
+            $allProjects = $pdo->query("SELECT p.*, c.name AS clientName, u.name AS managerName FROM projects p LEFT JOIN clients c ON c.id = p.client_id LEFT JOIN users u ON u.id = p.manager_id ORDER BY p.created_at DESC")->fetchAll();
+            foreach ($allProjects as &$pr) $pr['progress'] = computeProjectProgress($pdo, $pr['id'], $pr['progress_manual']);
+            unset($pr);
+            $payload['projects'] = $isAdmin ? $allProjects : array_values(array_filter($allProjects, fn($pr) => canAccessProject($pdo, $currentUser, $pr['id'])));
             $payload['prompts'] = $pdo->query("
                 SELECT p.id, p.name, p.category, p.prompt_text AS promptText, p.image_path AS imagePath, p.created_by AS createdBy, u.name AS creatorName, p.created_at AS createdAt
                 FROM prompts p LEFT JOIN users u ON u.id = p.created_by
@@ -163,7 +168,7 @@ switch ($action) {
                 $payload['claims'] = $pdo->query("SELECT id, debtor_name AS debtorName, debtor_phone AS debtorPhone, amount, paid_amount AS paidAmount, description, due_date AS dueDate, created_at AS createdAt FROM financial_claims ORDER BY due_date IS NULL, due_date ASC")->fetchAll();
             }
 
-            $tasks = $pdo->query("SELECT id, title, description, priority, status, category, deadline, client_id AS clientId, created_by AS createdBy, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
+            $tasks = $pdo->query("SELECT id, title, description, priority, status, category, deadline, client_id AS clientId, project_id AS projectId, requires_review AS requiresReview, review_note AS reviewNote, created_by AS createdBy, created_at AS createdAt FROM tasks ORDER BY created_at DESC")->fetchAll();
             $aStmt = $pdo->prepare("SELECT user_id AS userId, accepted, accepted_at AS acceptedAt, done, completed_at AS completedAt FROM task_assignees WHERE task_id = ?");
             foreach ($tasks as &$t) {
                 $aStmt->execute([$t['id']]);
@@ -312,9 +317,23 @@ switch ($action) {
             }
         }
 
-        $stmt = $pdo->prepare("INSERT INTO tasks (title, description, priority, deadline, created_by, client_id, category) VALUES (?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([trim($b['title']), trim($b['description'] ?? ''), $b['priority'] ?: 'medium', $b['deadline'] ?: null, $admin['id'], $clientId, trim($b['category'] ?? '') ?: null]);
+        // ربط اختياري بمشروع (لازم صلاحية وصول للمشروع)، مع أخذ إعداد المراجعة الافتراضي منه ما لم يُحدَّد يدويًا
+        $projectId = null;
+        $requiresReview = 0;
+        if (!empty($b['projectId'])) {
+            if (!canAccessProject($pdo, $admin, $b['projectId'])) respond(['error' => 'غير مسموح لك بإضافة مهام لهذا المشروع'], 403);
+            $projectId = $b['projectId'];
+            $stmt = $pdo->prepare("SELECT default_requires_review FROM projects WHERE id = ?");
+            $stmt->execute([$projectId]);
+            $proj = $stmt->fetch();
+            $requiresReview = $proj ? (int) $proj['default_requires_review'] : 0;
+        }
+        if (isset($b['requiresReview'])) $requiresReview = (int) (bool) $b['requiresReview'];
+
+        $stmt = $pdo->prepare("INSERT INTO tasks (title, description, priority, deadline, created_by, client_id, category, project_id, requires_review) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([trim($b['title']), trim($b['description'] ?? ''), $b['priority'] ?: 'medium', $b['deadline'] ?: null, $admin['id'], $clientId, trim($b['category'] ?? '') ?: null, $projectId, $requiresReview]);
         $taskId = $pdo->lastInsertId();
+        if ($projectId) logProjectActivity($pdo, $projectId, $admin['id'], 'task_created', "أُنشئت مهمة: " . trim($b['title']));
         $insA = $pdo->prepare("INSERT INTO task_assignees (task_id, user_id) VALUES (?, ?)");
         $deadlineTxt = $b['deadline'] ? date('d/m', strtotime($b['deadline'])) : 'غير محدد';
         foreach ($b['assignees'] as $uid) {
@@ -334,7 +353,9 @@ switch ($action) {
         if (!$row) respond(['error' => 'أنت لست مسندًا لهذه المهمة'], 403);
         if (!$row['accepted']) {
             $pdo->prepare("UPDATE task_assignees SET accepted = 1, accepted_at = NOW() WHERE task_id = ? AND user_id = ?")->execute([$taskId, $user['id']]);
-            $pdo->prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ? AND status = 'new'")->execute([$taskId]);
+            $upd = $pdo->prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ? AND status = 'new'");
+            $upd->execute([$taskId]);
+            if ($upd->rowCount() > 0) logTaskStatusChange($pdo, $taskId, 'new', 'in_progress', $user['id']);
             $stmt = $pdo->prepare("SELECT title, created_by FROM tasks WHERE id = ?");
             $stmt->execute([$taskId]);
             $task = $stmt->fetch();
@@ -356,32 +377,31 @@ switch ($action) {
         if (!$row) respond(['error' => 'المهمة غير موجودة'], 404);
         if ($row['done']) respond(['success' => true]);
 
-        $completedAt = date('Y-m-d H:i:s');
-        $pdo->prepare("UPDATE task_assignees SET done = 1, completed_at = ?, accepted = 1, accepted_at = COALESCE(accepted_at, ?) WHERE task_id = ? AND user_id = ?")
-            ->execute([$completedAt, $completedAt, $taskId, $userId]);
-
-        $stmt = $pdo->prepare("SELECT title, deadline FROM tasks WHERE id = ?");
+        $stmt = $pdo->prepare("SELECT * FROM tasks WHERE id = ?");
         $stmt->execute([$taskId]);
         $task = $stmt->fetch();
-        $onTime = !$task['deadline'] || strtotime($completedAt) <= strtotime($task['deadline'] . ' 23:59:59');
-        if ($onTime) {
-            $s = $pdo->query("SELECT points_on_time, points_early_bonus, early_bonus_hours FROM settings WHERE id = 1")->fetch();
-            $pts = (int) $s['points_on_time'];
-            if ($task['deadline']) {
-                $hoursEarly = (strtotime($task['deadline'] . ' 23:59:59') - strtotime($completedAt)) / 3600;
-                if ($hoursEarly >= (int) $s['early_bonus_hours']) $pts += (int) $s['points_early_bonus'];
-            }
-            $pdo->prepare("INSERT INTO points (user_id, points, reason) VALUES (?, ?, ?)")->execute([$userId, $pts, "إنجاز مهمة: {$task['title']}"]);
-            pushNotification($pdo, $userId, "أحسنت! أنجزت \"{$task['title']}\" وحصلت على {$pts} نقطة.", 'points');
+
+        // مهمة تتطلب مراجعة: لا يجوز احتساب النقاط قبل الاعتماد الفعلي — استخدم submitForReview بدل هذا الإجراء
+        if ($task['requires_review']) {
+            respond(['error' => 'هذه المهمة تتطلب مراجعة من المدير — استخدم "إرسال للمراجعة" بدل الإكمال المباشر'], 400);
+        }
+
+        $result = finalizeTaskAssigneeCompletion($pdo, $task, $userId);
+        if ($result['onTime']) {
+            pushNotification($pdo, $userId, "أحسنت! أنجزت \"{$task['title']}\" وحصلت على {$result['points']} نقطة.", 'points');
         } else {
             pushNotification($pdo, $userId, "أنجزت \"{$task['title']}\" بعد الموعد النهائي.", 'task');
         }
 
-        $stmt = $pdo->prepare("SELECT COUNT(*) total, SUM(done) doneCount FROM task_assignees WHERE task_id = ?");
-        $stmt->execute([$taskId]);
-        $cnt = $stmt->fetch();
-        if ($cnt['total'] > 0 && $cnt['total'] == $cnt['doneCount']) {
-            $pdo->prepare("UPDATE tasks SET status = 'done' WHERE id = ?")->execute([$taskId]);
+        // إغلاق المهمة تلقائيًا لو كل المسندين خلصوا — فقط للمهام التي لا تحتاج مراجعة (سلوك قديم بدون تغيير)
+        if (!$task['requires_review']) {
+            $stmt = $pdo->prepare("SELECT COUNT(*) total, SUM(done) doneCount FROM task_assignees WHERE task_id = ?");
+            $stmt->execute([$taskId]);
+            $cnt = $stmt->fetch();
+            if ($cnt['total'] > 0 && $cnt['total'] == $cnt['doneCount']) {
+                $pdo->prepare("UPDATE tasks SET status = 'done' WHERE id = ?")->execute([$taskId]);
+                logTaskStatusChange($pdo, $taskId, $task['status'], 'done', $userId);
+            }
         }
         respond(['success' => true]);
     }
@@ -747,8 +767,398 @@ switch ($action) {
         respond(['success' => true]);
     }
 
+    /* ============ المشاريع ============ */
+    case 'createProject': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $name = trim($b['name'] ?? '');
+        if ($name === '') respond(['error' => 'اسم المشروع مطلوب'], 400);
+        $managerId = !empty($b['managerId']) ? $b['managerId'] : $user['id'];
+        $defaultReview = array_key_exists('defaultRequiresReview', $b) ? (int) (bool) $b['defaultRequiresReview'] : 1;
+
+        $stmt = $pdo->prepare("INSERT INTO projects (client_id, manager_id, name, description, status, start_date, due_date, default_requires_review, notes) VALUES (?, ?, ?, ?, 'new', ?, ?, ?, ?)");
+        $stmt->execute([
+            $b['clientId'] ?: null, $managerId, $name, trim($b['description'] ?? ''),
+            $b['startDate'] ?: null, $b['dueDate'] ?: null, $defaultReview, trim($b['notes'] ?? '')
+        ]);
+        $projectId = $pdo->lastInsertId();
+
+        $pdo->prepare("INSERT IGNORE INTO project_members (project_id, user_id) VALUES (?, ?)")->execute([$projectId, $managerId]);
+        if (!empty($b['memberIds']) && is_array($b['memberIds'])) {
+            $insM = $pdo->prepare("INSERT IGNORE INTO project_members (project_id, user_id) VALUES (?, ?)");
+            foreach ($b['memberIds'] as $mid) $insM->execute([$projectId, $mid]);
+        }
+        logProjectActivity($pdo, $projectId, $user['id'], 'created', 'تم إنشاء المشروع');
+        respond(['success' => true, 'id' => $projectId]);
+    }
+
+    case 'updateProject': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $projectId = $b['id'] ?? 0;
+        if (!canManageProject($pdo, $user, $projectId)) respond(['error' => 'غير مسموح لك بإدارة هذا المشروع'], 403);
+
+        $stmt = $pdo->prepare("SELECT * FROM projects WHERE id = ?");
+        $stmt->execute([$projectId]);
+        $old = $stmt->fetch();
+        if (!$old) respond(['error' => 'المشروع غير موجود'], 404);
+
+        $newStatus = $b['status'] ?? $old['status'];
+        $pdo->prepare("UPDATE projects SET name=?, description=?, status=?, client_id=?, manager_id=?, start_date=?, due_date=?, default_requires_review=?, progress_manual=?, notes=? WHERE id=?")
+            ->execute([
+                trim($b['name'] ?? $old['name']), array_key_exists('description', $b) ? trim($b['description']) : $old['description'],
+                $newStatus, array_key_exists('clientId', $b) ? ($b['clientId'] ?: null) : $old['client_id'],
+                array_key_exists('managerId', $b) ? $b['managerId'] : $old['manager_id'],
+                array_key_exists('startDate', $b) ? ($b['startDate'] ?: null) : $old['start_date'],
+                array_key_exists('dueDate', $b) ? ($b['dueDate'] ?: null) : $old['due_date'],
+                array_key_exists('defaultRequiresReview', $b) ? (int) (bool) $b['defaultRequiresReview'] : $old['default_requires_review'],
+                array_key_exists('progressManual', $b) ? ($b['progressManual'] === null || $b['progressManual'] === '' ? null : (int) $b['progressManual']) : $old['progress_manual'],
+                array_key_exists('notes', $b) ? trim($b['notes']) : $old['notes'],
+                $projectId
+            ]);
+
+        if ($newStatus !== $old['status']) {
+            logProjectActivity($pdo, $projectId, $user['id'], 'status_changed', "الحالة تغيّرت من {$old['status']} إلى {$newStatus}");
+        } else {
+            logProjectActivity($pdo, $projectId, $user['id'], 'updated', 'تم تحديث بيانات المشروع');
+        }
+        respond(['success' => true]);
+    }
+
+    case 'removeProject': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $projectId = $b['id'] ?? 0;
+        if (!canManageProject($pdo, $user, $projectId)) respond(['error' => 'غير مسموح لك بحذف هذا المشروع'], 403);
+        $pdo->prepare("DELETE FROM projects WHERE id = ?")->execute([$projectId]);
+        respond(['success' => true]);
+    }
+
+    case 'addProjectMember': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $projectId = $b['projectId'] ?? 0;
+        $memberId = $b['userId'] ?? 0;
+        if (!canManageProject($pdo, $user, $projectId)) respond(['error' => 'غير مسموح'], 403);
+        try {
+            $pdo->prepare("INSERT INTO project_members (project_id, user_id) VALUES (?, ?)")->execute([$projectId, $memberId]);
+        } catch (\Throwable $e) {
+            respond(['error' => 'هذا العضو مضاف أصلًا للمشروع'], 400);
+        }
+        logProjectActivity($pdo, $projectId, $user['id'], 'member_added', null);
+        $stmt = $pdo->prepare("SELECT name FROM projects WHERE id = ?");
+        $stmt->execute([$projectId]);
+        $p = $stmt->fetch();
+        pushNotification($pdo, $memberId, "تمت إضافتك لفريق مشروع \"" . ($p['name'] ?? '') . "\"", 'task');
+        respond(['success' => true]);
+    }
+
+    case 'removeProjectMember': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $projectId = $b['projectId'] ?? 0;
+        $memberId = $b['userId'] ?? 0;
+        if (!canManageProject($pdo, $user, $projectId)) respond(['error' => 'غير مسموح'], 403);
+        $pdo->prepare("DELETE FROM project_members WHERE project_id = ? AND user_id = ?")->execute([$projectId, $memberId]);
+        logProjectActivity($pdo, $projectId, $user['id'], 'member_removed', null);
+        respond(['success' => true]);
+    }
+
+    case 'projectDetail': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $projectId = $b['id'] ?? 0;
+        if (!canAccessProject($pdo, $user, $projectId)) respond(['error' => 'غير مسموح لك بالوصول لهذا المشروع'], 403);
+
+        $stmt = $pdo->prepare("SELECT p.*, c.name AS clientName, u.name AS managerName FROM projects p LEFT JOIN clients c ON c.id = p.client_id LEFT JOIN users u ON u.id = p.manager_id WHERE p.id = ?");
+        $stmt->execute([$projectId]);
+        $project = $stmt->fetch();
+        if (!$project) respond(['error' => 'المشروع غير موجود'], 404);
+        $project['progress'] = computeProjectProgress($pdo, $projectId, $project['progress_manual']);
+
+        $stmt = $pdo->prepare("SELECT pm.user_id AS userId, u.name AS userName FROM project_members pm JOIN users u ON u.id = pm.user_id WHERE pm.project_id = ?");
+        $stmt->execute([$projectId]);
+        $members = $stmt->fetchAll();
+
+        $stmt = $pdo->prepare("SELECT id, title, status, priority, deadline, requires_review AS requiresReview FROM tasks WHERE project_id = ? ORDER BY created_at DESC");
+        $stmt->execute([$projectId]);
+        $tasks = $stmt->fetchAll();
+
+        $stmt = $pdo->prepare("SELECT id, file_name AS fileName, file_path AS filePath, file_type AS fileType, file_size AS fileSize, link_url AS linkUrl, version_group AS versionGroup, version_label AS versionLabel, created_at AS createdAt, uploaded_by AS uploadedBy FROM attachments WHERE entity_type = 'project' AND entity_id = ? ORDER BY created_at DESC");
+        $stmt->execute([$projectId]);
+        $attachments = $stmt->fetchAll();
+
+        $stmt = $pdo->prepare("SELECT pa.action, pa.description, pa.created_at AS createdAt, u.name AS userName FROM project_activity pa LEFT JOIN users u ON u.id = pa.user_id WHERE pa.project_id = ? ORDER BY pa.id DESC LIMIT 40");
+        $stmt->execute([$projectId]);
+        $activity = $stmt->fetchAll();
+
+        respond(['project' => $project, 'members' => $members, 'tasks' => $tasks, 'attachments' => $attachments, 'activity' => $activity]);
+    }
+
+    /* ============ سير مراجعة المهام (State Machine محكوم) ============ */
+    case 'submitForReview': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $taskId = $b['taskId'] ?? 0;
+        $stmt = $pdo->prepare("SELECT * FROM tasks WHERE id = ?");
+        $stmt->execute([$taskId]);
+        $task = $stmt->fetch();
+        if (!$task) respond(['error' => 'المهمة غير موجودة'], 404);
+
+        $stmt = $pdo->prepare("SELECT id FROM task_assignees WHERE task_id = ? AND user_id = ?");
+        $stmt->execute([$taskId, $user['id']]);
+        if ($user['role'] !== 'admin' && !$stmt->fetch()) respond(['error' => 'أنت لست مسندًا لهذه المهمة'], 403);
+
+        if (!isValidTaskTransition($task['status'], 'ready_for_review', $task['requires_review'])) {
+            respond(['error' => "لا يمكن إرسال المهمة للمراجعة من حالتها الحالية ({$task['status']})"], 400);
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare("UPDATE tasks SET status = 'ready_for_review' WHERE id = ?")->execute([$taskId]);
+            logTaskStatusChange($pdo, $taskId, $task['status'], 'ready_for_review', $user['id']);
+            if ($task['project_id']) logProjectActivity($pdo, $task['project_id'], $user['id'], 'submitted_for_review', "أُرسلت للمراجعة: {$task['title']}");
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            respond(['error' => 'فشلت العملية، لم يتم حفظ أي تغيير'], 500);
+        }
+
+        if ($task['project_id']) {
+            $stmt = $pdo->prepare("SELECT manager_id FROM projects WHERE id = ?");
+            $stmt->execute([$task['project_id']]);
+            $mgr = $stmt->fetch();
+            if ($mgr && $mgr['manager_id']) pushNotification($pdo, $mgr['manager_id'], "مهمة \"{$task['title']}\" جاهزة للمراجعة.", 'task');
+        } elseif ($task['created_by']) {
+            pushNotification($pdo, $task['created_by'], "مهمة \"{$task['title']}\" جاهزة للمراجعة.", 'task');
+        }
+        respond(['success' => true]);
+    }
+
+    case 'approveTask': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $taskId = $b['taskId'] ?? 0;
+        if (!canReviewTask($pdo, $user, $taskId)) respond(['error' => 'غير مسموح لك بمراجعة هذه المهمة'], 403);
+
+        $stmt = $pdo->prepare("SELECT * FROM tasks WHERE id = ?");
+        $stmt->execute([$taskId]);
+        $task = $stmt->fetch();
+        if (!$task) respond(['error' => 'المهمة غير موجودة'], 404);
+        if (!isValidTaskTransition($task['status'], 'done', $task['requires_review'])) {
+            respond(['error' => "لا يمكن اعتماد المهمة من حالتها الحالية ({$task['status']})"], 400);
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare("UPDATE tasks SET status = 'done' WHERE id = ?")->execute([$taskId]);
+            logTaskStatusChange($pdo, $taskId, $task['status'], 'done', $user['id'], trim($b['note'] ?? '') ?: null);
+
+            // احتساب نقاط أي مسند لسا ما احتُسبت له (نفس آلية النقاط الحالية بالضبط، دون تغيير)
+            $aStmt = $pdo->prepare("SELECT user_id FROM task_assignees WHERE task_id = ? AND done = 0");
+            $aStmt->execute([$taskId]);
+            $pendingAssignees = $aStmt->fetchAll();
+            foreach ($pendingAssignees as $a) {
+                finalizeTaskAssigneeCompletion($pdo, $task, $a['user_id']);
+            }
+
+            if ($task['project_id']) logProjectActivity($pdo, $task['project_id'], $user['id'], 'task_approved', "تم اعتماد مهمة: {$task['title']}");
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            respond(['error' => 'فشل اعتماد المهمة، لم يتم حفظ أي تغيير'], 500);
+        }
+
+        $aStmt = $pdo->prepare("SELECT user_id FROM task_assignees WHERE task_id = ?");
+        $aStmt->execute([$taskId]);
+        foreach ($aStmt->fetchAll() as $a) {
+            pushNotification($pdo, $a['user_id'], "تم اعتماد مهمتك \"{$task['title']}\" ✅", 'points');
+        }
+        respond(['success' => true]);
+    }
+
+    case 'requestChanges': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $taskId = $b['taskId'] ?? 0;
+        $note = trim($b['note'] ?? '');
+        if ($note === '') respond(['error' => 'لازم تكتب ملاحظة توضح التعديلات المطلوبة'], 400);
+        if (!canReviewTask($pdo, $user, $taskId)) respond(['error' => 'غير مسموح لك بمراجعة هذه المهمة'], 403);
+
+        $stmt = $pdo->prepare("SELECT * FROM tasks WHERE id = ?");
+        $stmt->execute([$taskId]);
+        $task = $stmt->fetch();
+        if (!$task) respond(['error' => 'المهمة غير موجودة'], 404);
+        if (!isValidTaskTransition($task['status'], 'changes_requested', $task['requires_review'])) {
+            respond(['error' => "لا يمكن طلب تعديل من حالة المهمة الحالية ({$task['status']})"], 400);
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare("UPDATE tasks SET status = 'changes_requested' WHERE id = ?")->execute([$taskId]);
+            logTaskStatusChange($pdo, $taskId, $task['status'], 'changes_requested', $user['id'], $note);
+            if ($task['project_id']) logProjectActivity($pdo, $task['project_id'], $user['id'], 'changes_requested', "طُلب تعديل على: {$task['title']}");
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            respond(['error' => 'فشلت العملية، لم يتم حفظ أي تغيير'], 500);
+        }
+
+        $aStmt = $pdo->prepare("SELECT user_id FROM task_assignees WHERE task_id = ?");
+        $aStmt->execute([$taskId]);
+        foreach ($aStmt->fetchAll() as $a) {
+            pushNotification($pdo, $a['user_id'], "طُلب تعديل على مهمة \"{$task['title']}\": {$note}", 'task');
+        }
+        respond(['success' => true]);
+    }
+
+    case 'resumeTask': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $taskId = $b['taskId'] ?? 0;
+        $stmt = $pdo->prepare("SELECT * FROM tasks WHERE id = ?");
+        $stmt->execute([$taskId]);
+        $task = $stmt->fetch();
+        if (!$task) respond(['error' => 'المهمة غير موجودة'], 404);
+
+        $stmt = $pdo->prepare("SELECT id FROM task_assignees WHERE task_id = ? AND user_id = ?");
+        $stmt->execute([$taskId, $user['id']]);
+        if ($user['role'] !== 'admin' && !$stmt->fetch()) respond(['error' => 'غير مسموح'], 403);
+
+        if (!isValidTaskTransition($task['status'], 'in_progress', $task['requires_review'])) {
+            respond(['error' => "لا يمكن استئناف العمل من حالة المهمة الحالية ({$task['status']})"], 400);
+        }
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?")->execute([$taskId]);
+            logTaskStatusChange($pdo, $taskId, $task['status'], 'in_progress', $user['id']);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            respond(['error' => 'فشلت العملية'], 500);
+        }
+        respond(['success' => true]);
+    }
+
+    case 'taskStatusLog': {
+        requireLogin($pdo);
+        $b = bodyInput();
+        $taskId = $b['taskId'] ?? 0;
+        $stmt = $pdo->prepare("SELECT tsl.from_status AS fromStatus, tsl.to_status AS toStatus, tsl.note, tsl.created_at AS createdAt, u.name AS userName FROM task_status_log tsl LEFT JOIN users u ON u.id = tsl.changed_by WHERE tsl.task_id = ? ORDER BY tsl.id ASC");
+        $stmt->execute([$taskId]);
+        respond(['log' => $stmt->fetchAll()]);
+    }
+
+    /* ============ المرفقات (Polymorphic: تحقق يدوي بدل FK مباشر) ============ */
+    case 'uploadAttachment': {
+        $user = requireLogin($pdo);
+        $entityType = $_POST['entityType'] ?? '';
+        $entityId = (int) ($_POST['entityId'] ?? 0);
+        if (!in_array($entityType, ['task', 'project', 'client'], true)) respond(['error' => 'نوع العنصر غير صالح'], 400);
+        if (!validateAttachmentEntity($pdo, $user, $entityType, $entityId)) respond(['error' => 'العنصر غير موجود أو غير مسموح لك بالوصول له'], 403);
+
+        $versionGroup = trim($_POST['versionGroup'] ?? '') ?: null;
+        $versionLabel = trim($_POST['versionLabel'] ?? '') ?: null;
+        $linkUrl = trim($_POST['linkUrl'] ?? '');
+
+        if ($linkUrl !== '') {
+            if (!filter_var($linkUrl, FILTER_VALIDATE_URL)) respond(['error' => 'رابط غير صالح'], 400);
+            $displayName = trim($_POST['name'] ?? '') ?: $linkUrl;
+            $stmt = $pdo->prepare("INSERT INTO attachments (entity_type, entity_id, file_name, link_url, version_group, version_label, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$entityType, $entityId, $displayName, $linkUrl, $versionGroup, $versionLabel, $user['id']]);
+            respond(['success' => true]);
+        }
+
+        if (empty($_FILES['file']['name']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            respond(['error' => 'لم يتم اختيار ملف أو رابط صالح'], 400);
+        }
+
+        $allowed = [
+            'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif',
+            'application/pdf' => 'pdf',
+            'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.ms-excel' => 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+            'video/mp4' => 'mp4', 'video/quicktime' => 'mov',
+            'application/zip' => 'zip',
+        ];
+        $maxSize = 15 * 1024 * 1024;
+
+        $mime = @mime_content_type($_FILES['file']['tmp_name']);
+        if (!isset($allowed[$mime])) respond(['error' => 'نوع الملف غير مدعوم'], 400);
+        if ($_FILES['file']['size'] > $maxSize) respond(['error' => 'حجم الملف أكبر من الحد المسموح (15 ميجا)'], 400);
+
+        $destDir = __DIR__ . '/../uploads/attachments/';
+        if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
+        // اسم داخلي عشوائي بالكامل (لا علاقة له بالاسم الأصلي) — يمنع Path Traversal نهائيًا
+        $internalName = bin2hex(random_bytes(16)) . '.' . $allowed[$mime];
+        $destPath = $destDir . $internalName;
+
+        if (!@move_uploaded_file($_FILES['file']['tmp_name'], $destPath)) {
+            respond(['error' => 'فشل رفع الملف على السيرفر'], 500);
+        }
+
+        $originalName = basename(trim($_FILES['file']['name']));
+        $stmt = $pdo->prepare("INSERT INTO attachments (entity_type, entity_id, file_name, file_path, file_type, file_size, version_group, version_label, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$entityType, $entityId, $originalName, 'uploads/attachments/' . $internalName, $mime, (int) $_FILES['file']['size'], $versionGroup, $versionLabel, $user['id']]);
+
+        if ($entityType === 'project') {
+            logProjectActivity($pdo, $entityId, $user['id'], 'file_uploaded', "تم رفع ملف: {$originalName}");
+        } elseif ($entityType === 'task') {
+            $stmt = $pdo->prepare("SELECT project_id FROM tasks WHERE id = ?");
+            $stmt->execute([$entityId]);
+            $t = $stmt->fetch();
+            if ($t && $t['project_id']) logProjectActivity($pdo, $t['project_id'], $user['id'], 'file_uploaded', "تم رفع ملف على مهمة: {$originalName}");
+        }
+        respond(['success' => true]);
+    }
+
+    case 'removeAttachment': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $id = $b['id'] ?? 0;
+        $stmt = $pdo->prepare("SELECT * FROM attachments WHERE id = ?");
+        $stmt->execute([$id]);
+        $att = $stmt->fetch();
+        if (!$att) respond(['error' => 'المرفق غير موجود'], 404);
+
+        $canDelete = ($user['role'] === 'admin') || ($att['uploaded_by'] == $user['id']);
+        if (!$canDelete && $att['entity_type'] === 'project') $canDelete = canManageProject($pdo, $user, $att['entity_id']);
+        if (!$canDelete && $att['entity_type'] === 'task') {
+            $stmt = $pdo->prepare("SELECT project_id FROM tasks WHERE id = ?");
+            $stmt->execute([$att['entity_id']]);
+            $t = $stmt->fetch();
+            if ($t && $t['project_id']) $canDelete = canManageProject($pdo, $user, $t['project_id']);
+        }
+        if (!$canDelete) respond(['error' => 'غير مسموح لك بحذف هذا المرفق'], 403);
+
+        $pdo->prepare("DELETE FROM attachments WHERE id = ?")->execute([$id]);
+        if ($att['file_path']) {
+            $full = realpath(__DIR__ . '/../' . $att['file_path']);
+            $uploadsRoot = realpath(__DIR__ . '/../uploads/');
+            // حماية إضافية: احذف فقط لو المسار الفعلي جوّا مجلد uploads فعلًا (منع Path Traversal حتى لو تلاعب أحد بالمسار المخزَّن)
+            if ($full && $uploadsRoot && strpos($full, $uploadsRoot) === 0 && file_exists($full)) {
+                @unlink($full);
+            }
+        }
+        respond(['success' => true]);
+    }
+
+    case 'entityAttachments': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $entityType = $b['entityType'] ?? '';
+        $entityId = $b['entityId'] ?? 0;
+        if (!validateAttachmentEntity($pdo, $user, $entityType, $entityId)) respond(['error' => 'غير مسموح'], 403);
+        $stmt = $pdo->prepare("SELECT a.id, a.file_name AS fileName, a.file_path AS filePath, a.file_type AS fileType, a.file_size AS fileSize, a.link_url AS linkUrl, a.version_group AS versionGroup, a.version_label AS versionLabel, a.created_at AS createdAt, a.uploaded_by AS uploadedBy, u.name AS uploaderName FROM attachments a LEFT JOIN users u ON u.id = a.uploaded_by WHERE a.entity_type = ? AND a.entity_id = ? ORDER BY a.created_at DESC");
+        $stmt->execute([$entityType, $entityId]);
+        respond(['attachments' => $stmt->fetchAll()]);
+    }
+
     /* ============ بصمة الحضور الحقيقية (WebAuthn) ============ */
     case 'webauthnRegisterStart': {
+
         $user = requireLogin($pdo);
         $webAuthn = getWebAuthn();
         $stmt = $pdo->prepare("SELECT credential_id FROM webauthn_credentials WHERE user_id = ?");

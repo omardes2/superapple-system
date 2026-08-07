@@ -37,11 +37,60 @@ CREATE TABLE IF NOT EXISTS clients (
 CREATE TABLE IF NOT EXISTS projects (
   id INT AUTO_INCREMENT PRIMARY KEY,
   client_id INT DEFAULT NULL,
+  manager_id INT DEFAULT NULL,
   name VARCHAR(150) NOT NULL,
   description TEXT DEFAULT NULL,
-  status ENUM('active','completed','on_hold') NOT NULL DEFAULT 'active',
+  status ENUM('new','active','on_hold','completed','cancelled') NOT NULL DEFAULT 'new',
+  start_date DATE DEFAULT NULL,
+  due_date DATE DEFAULT NULL,
+  progress_manual TINYINT UNSIGNED DEFAULT NULL,
+  default_requires_review TINYINT(1) NOT NULL DEFAULT 1,
+  notes TEXT DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
+  FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL,
+  FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_project_client (client_id),
+  INDEX idx_project_manager (manager_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS project_members (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  project_id INT NOT NULL,
+  user_id INT NOT NULL,
+  added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE KEY proj_user (project_id, user_id),
+  INDEX idx_pm_project (project_id),
+  INDEX idx_pm_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS project_activity (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  project_id INT NOT NULL,
+  user_id INT DEFAULT NULL,
+  action VARCHAR(50) NOT NULL,
+  description TEXT DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  INDEX idx_pa_project (project_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS attachments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  entity_type ENUM('task','project','client') NOT NULL,
+  entity_id INT NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  file_path VARCHAR(255) DEFAULT NULL,
+  file_type VARCHAR(100) DEFAULT NULL,
+  file_size BIGINT UNSIGNED DEFAULT NULL,
+  link_url VARCHAR(500) DEFAULT NULL,
+  version_group VARCHAR(50) DEFAULT NULL,
+  version_label VARCHAR(30) DEFAULT NULL,
+  uploaded_by INT DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_attach_entity (entity_type, entity_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -49,16 +98,32 @@ CREATE TABLE IF NOT EXISTS tasks (
   title VARCHAR(255) NOT NULL,
   description TEXT,
   priority ENUM('low','medium','high') DEFAULT 'medium',
-  status ENUM('new','in_progress','done') NOT NULL DEFAULT 'new',
+  status ENUM('new','in_progress','ready_for_review','changes_requested','done') NOT NULL DEFAULT 'new',
   category VARCHAR(100) DEFAULT NULL,
   deadline DATE DEFAULT NULL,
   created_by INT DEFAULT NULL,
   project_id INT DEFAULT NULL,
   client_id INT DEFAULT NULL,
+  requires_review TINYINT(1) NOT NULL DEFAULT 0,
+  review_note TEXT DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
-  FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
+  FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL,
+  INDEX idx_task_project (project_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS task_status_log (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  task_id INT NOT NULL,
+  from_status VARCHAR(30) DEFAULT NULL,
+  to_status VARCHAR(30) NOT NULL,
+  changed_by INT DEFAULT NULL,
+  note TEXT DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_tsl_task (task_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS task_assignees (
