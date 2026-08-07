@@ -98,7 +98,18 @@
   .page-sub{color:var(--text-muted);font-size:12px;margin-top:3px;}
   .topbar-actions{display:flex;align-items:center;gap:10px;flex:none;}
   .bell-btn{position:relative;width:40px;height:40px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:17px;}
-  .bell-dot{position:absolute;top:8px;left:9px;width:8px;height:8px;border-radius:50%;background:var(--accent);border:2px solid var(--surface);}
+  .bell-dot{position:absolute;top:-4px;left:-4px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;border:2px solid var(--surface);}
+  .notif-bell-wrap{position:relative;}
+  .notif-dropdown{position:absolute;top:calc(100% + 10px);left:0;width:340px;max-width:90vw;max-height:440px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 12px 32px rgba(0,0,0,0.18);z-index:200;display:flex;flex-direction:column;overflow:hidden;}
+  .notif-dropdown-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);flex:none;}
+  .notif-dropdown-body{overflow-y:auto;flex:1;}
+  .notif-dropdown-item{display:flex;gap:10px;padding:11px 14px;width:100%;text-align:right;border-bottom:1px solid var(--border);background:none;position:relative;}
+  .notif-dropdown-item:hover{background:var(--surface-2);}
+  .notif-dropdown-item.unread{background:var(--primary-tint);}
+  .notif-dropdown-msg{font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .notif-unread-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;align-self:center;}
+  .notif-dropdown-footer{padding:11px;text-align:center;font-size:12.5px;font-weight:700;color:var(--primary);background:var(--surface-2);flex:none;}
+  @media(max-width:860px){ .notif-dropdown{position:fixed;top:64px;left:12px;right:12px;width:auto;max-width:none;} }
 
   .grid{display:grid;gap:16px;}
   .grid-4{grid-template-columns:repeat(4,1fr);}
@@ -202,11 +213,17 @@
   .modal-title{font-size:15px;margin-bottom:14px;}
   .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .chip-select{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);}
+  .mention-dropdown{position:absolute;bottom:calc(100% + 6px);right:0;left:0;max-width:280px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.15);overflow:hidden;z-index:50;}
+  .mention-item{display:block;width:100%;text-align:right;padding:9px 14px;font-size:13px;font-weight:700;background:none;border-bottom:1px solid var(--border);}
+  .mention-item:last-child{border-bottom:none;}
+  .mention-item:hover{background:var(--primary-tint);}
   .chip{padding:6px 12px;border-radius:100px;font-size:12.5px;font-weight:700;background:#fff;border:1.5px solid var(--border);color:var(--text-muted);}
   .chip.sel{background:var(--primary);color:#fff;border-color:var(--primary);}
   .modal-actions{display:flex;gap:10px;margin-top:18px;}
 
   .notif-item{display:flex;gap:12px;padding:12px 6px;border-bottom:1px solid var(--border);}
+  .notif-item.unread{background:var(--primary-tint);border-radius:8px;}
+  .notif-item.clickable{cursor:pointer;}
   .notif-icon{width:34px;height:34px;border-radius:10px;background:var(--primary-tint);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none;font-size:15px;}
   .notif-text{font-size:13.5px;line-height:1.6;}
   .notif-time{font-size:11px;color:var(--text-faint);margin-top:2px;}
@@ -235,6 +252,12 @@
   .today-row-schedule{font-size:11px;color:var(--text-faint);}
   .today-row-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
   .today-time-chip{font-size:11.5px;background:var(--surface);padding:4px 9px;border-radius:100px;border:1px solid var(--border);font-weight:700;}
+
+  .attention-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));gap:10px;}
+  .attention-item{display:flex;align-items:center;gap:10px;padding:12px;border-radius:var(--radius-sm);background:var(--surface-2);cursor:pointer;transition:transform .15s;}
+  .attention-item:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.08);}
+  .attention-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;flex:none;}
+  @media(max-width:860px){ .attention-grid{grid-template-columns:1fr;} }
 
   /* ===== موبايل: قائمة منسدلة بدل السايدبار الثابت ===== */
   @media(max-width:860px){
@@ -281,7 +304,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null,
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'all', reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -316,6 +339,8 @@ async function init(){
   applyBootstrap(data);
   state.loading = false;
   render();
+  if(state.currentUser && state.currentUser.role==='admin') loadExecutiveDashboard();
+  if(state.currentUser) loadUnreadNotifCount();
 }
 async function refresh(){
   const data = await apiGet('bootstrap');
@@ -367,6 +392,8 @@ async function handleLogin(e){
   if(res.error){ state.loginError = 'البريد الإلكتروني أو كلمة السر غير صحيحة'; render(); return; }
   state.loginError = '';
   await refresh();
+  if(state.currentUser && state.currentUser.role==='admin') loadExecutiveDashboard();
+  if(state.currentUser) loadUnreadNotifCount();
 }
 async function handleLogout(){
   await apiPost('logout', {});
@@ -608,7 +635,7 @@ async function loadTeamChat(silent){
     if(state.teamChatOpen) setLastReadChatId(newest.id);
   }
   state.teamChat = msgs;
-  if(!silent || state.teamChatOpen || unreadChanged){ render(); if(state.teamChatOpen) scrollChatToBottom(); }
+  if(!silent || state.teamChatOpen || unreadChanged){ safeRender(); if(state.teamChatOpen) scrollChatToBottom(); }
 }
 async function sendTeamChatMessage(message){
   const res = await apiPost('sendTeamChatMessage', { message });
@@ -616,6 +643,13 @@ async function sendTeamChatMessage(message){
   await loadTeamChat(false);
 }
 setInterval(()=>{ if(state.currentUser) loadTeamChat(true); }, 6000);
+setInterval(()=>{ if(state.currentUser) loadUnreadNotifCount(); }, 20000);
+document.addEventListener('click', (e)=>{
+  if(state.notifDropdownOpen && !e.target.closest('.notif-bell-wrap')){
+    state.notifDropdownOpen = false;
+    render();
+  }
+});
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && state.currentUser) loadTeamChat(true); });
 
 
@@ -746,7 +780,7 @@ async function handleReviewLeave(id, status){
 /* ---------------- TASKS ---------------- */
 let selectedAssignees = [];
 let selectedProjectMembers = [];
-function openTaskModal(){ selectedAssignees = []; state.taskModal = true; state.adminTab = 'tasks'; render(); scrollToTaskForm(); }
+function openTaskModal(){ selectedAssignees = []; state.taskModal = true; state.adminTab = 'tasks'; render(); scrollToTaskForm(); if(state.currentUser.role==='admin' && state.workload.length===0) loadWorkload(); }
 function scrollToTaskForm(){
   setTimeout(()=>{ document.getElementById('taskInlinePanel')?.scrollIntoView({behavior:'smooth', block:'start'}); }, 50);
 }
@@ -796,7 +830,8 @@ async function addAssigneeToTask(taskId, userId){
   showToast('تمت إضافة الزميل للمهمة');
 }
 async function addTaskComment(taskId, message){
-  const res = await apiPost('addTaskComment', { taskId, message });
+  const res = await apiPost('addTaskComment', { taskId, message, mentionedUserIds: pendingMentionIds });
+  pendingMentionIds = [];
   if(res.error){ showToast(res.error); return; }
   await loadTaskComments(taskId);
   showToast('تم إضافة التعليق');
@@ -804,7 +839,7 @@ async function addTaskComment(taskId, message){
 async function loadTaskComments(taskId){
   const res = await apiPost('taskComments', { taskId });
   state.taskComments = res.comments || [];
-  render();
+  safeRender();
 }
 
 /* ---------------- PHASE 1: TASK REVIEW WORKFLOW ---------------- */
@@ -896,6 +931,100 @@ async function handleCreateProject(e){
   await refresh();
   showToast('تم إنشاء المشروع');
 }
+/* ---------------- PHASE 2 BATCH 3: EXECUTIVE DASHBOARD + WORKLOAD ---------------- */
+async function loadExecutiveDashboard(){
+  const res = await apiPost('executiveDashboard', {});
+  if(res.error) return;
+  state.executiveDashboard = res;
+  safeRender();
+}
+async function loadWorkload(){
+  const res = await apiPost('workloadReport', {});
+  if(res.error) return;
+  state.workload = res.workload || [];
+  safeRender();
+}
+
+/* ---------------- PHASE 2 BATCH 3: @MENTIONS UI ---------------- */
+let pendingMentionIds = []; // user IDs مختارة صراحة من قائمة الاقتراح — هاي مصدر الحقيقة، مو تحليل النص
+async function loadMentionableUsers(taskId){
+  const res = await apiPost('mentionableUsers', { taskId });
+  state.taskMentionable = res.users || [];
+}
+function handleCommentInput(e){
+  const input = e.target;
+  const val = input.value;
+  const match = val.match(/@([^\s@]*)$/);
+  if(!match){
+    if(!state.mentionDropdownOpen) return; // لا داعي لإعادة رسم كاملة أثناء كتابة عادية بدون @ إطلاقًا
+    state.mentionDropdownOpen = false;
+  } else {
+    const partial = match[1];
+    const list = (state.taskMentionable || []).filter(u => u.name.includes(partial) || partial==='');
+    if(list.length===0){
+      if(!state.mentionDropdownOpen) return;
+      state.mentionDropdownOpen = false;
+    } else {
+      state.mentionSuggestions = list.slice(0, 6);
+      state.mentionDropdownOpen = true;
+    }
+  }
+  render();
+  // render() يبني عنصر input جديد بالكامل، فلازم نعيد القيمة والتركيز يدويًا بعد كل إعادة رسم هون
+  const freshInput = document.getElementById('taskCommentInput');
+  if(freshInput){ freshInput.value = val; freshInput.focus(); freshInput.setSelectionRange(val.length, val.length); }
+}
+function handleSelectMention(userId, userName){
+  const input = document.getElementById('taskCommentInput');
+  if(!input) return;
+  const newVal = input.value.replace(/@([^\s@]*)$/, '@' + userName + ' ');
+  if(!pendingMentionIds.includes(userId)) pendingMentionIds.push(userId);
+  state.mentionDropdownOpen = false;
+  render();
+  // render() يبني الـ input من جديد بالكامل، فلازم نعيد القيمة يدويًا بعد إعادة البناء مباشرة
+  const freshInput = document.getElementById('taskCommentInput');
+  if(freshInput){ freshInput.value = newVal; freshInput.focus(); freshInput.setSelectionRange(newVal.length, newVal.length); }
+}
+
+async function loadUnreadNotifCount(){
+  const res = await apiPost('notificationsUnreadCount', {});
+  if(res.error) return;
+  state.unreadNotifCount = res.count || 0;
+  safeRender();
+}
+async function handleMarkAllNotificationsRead(){
+  await apiPost('markAllNotificationsRead', {});
+  state.notifications = state.notifications.map(n => n.userId===state.currentUser.id ? {...n, isRead:true} : n);
+  state.unreadNotifCount = 0;
+  render();
+}
+async function handleOpenNotification(id, entityType, entityId){
+  const n = state.notifications.find(x=>String(x.id)===String(id));
+  if(n && !n.isRead){
+    n.isRead = true;
+    state.unreadNotifCount = Math.max(0, state.unreadNotifCount - 1);
+  }
+  state.notifDropdownOpen = false;
+  apiPost('markNotificationRead', { id }); // لا داعي للانتظار — تحديث فوري بالواجهة أولوية
+  if(entityType==='task' && entityId){
+    if(state.currentUser.role==='admin') state.adminTab='tasks'; else state.empTab='tasks';
+    state.openTaskId = entityId; state.taskStatusLog = [];
+    render();
+    loadTaskComments(entityId); loadTaskStatusLog(entityId); loadAttachments('task', entityId); loadMentionableUsers(entityId);
+    window.scrollTo({top:0, behavior:'smooth'});
+  } else if(entityType==='project' && entityId){
+    if(state.currentUser.role==='admin') state.adminTab='projects'; else state.empTab='projects';
+    render();
+    loadProjectDetail(entityId);
+    window.scrollTo({top:0, behavior:'smooth'});
+  } else if(entityType==='leave'){
+    if(state.currentUser.role==='admin') state.adminTab='attendance'; else state.empTab='attendance';
+    render();
+  } else {
+    render();
+  }
+}
+
 async function loadProjectDetail(id){
   state.openProjectId = id;
   state.projectDetail = null;
@@ -1053,6 +1182,26 @@ function renderDashboardCharts(){
 }
 
 /* ================= RENDER ================= */
+// نسخة آمنة من render() تُستخدم بكل تحديث "خلفي" (Workload، عدّاد الإشعارات، Dashboard، الدردشة...)
+// عشان ما تمسح محتوى أي نموذج مفتوح المستخدم عم يعبّيه بنفس اللحظة (مشكلة حقيقية اكتشفناها وأصلحناها)
+function safeRender(){
+  const activeForm = document.querySelector('#taskForm, #projectForm, #promptForm, #taskCommentForm, #webhookForm, #waForm');
+  let snapshot = null;
+  if(activeForm){
+    snapshot = {};
+    activeForm.querySelectorAll('input[name], textarea[name], select[name]').forEach(el=>{ snapshot[el.name] = el.value; });
+  }
+  render();
+  if(snapshot){
+    const freshForm = document.querySelector('#taskForm, #projectForm, #promptForm, #taskCommentForm, #webhookForm, #waForm');
+    if(freshForm){
+      freshForm.querySelectorAll('input[name], textarea[name], select[name]').forEach(el=>{
+        if(snapshot[el.name] !== undefined) el.value = snapshot[el.name];
+      });
+    }
+  }
+}
+
 function render(){
   const app = document.getElementById('app');
   if(state.loading){ app.innerHTML = `<div class="auth-wrap"><div style="color:var(--text-muted);font-weight:700;">جارِ التحميل…</div></div>`; return; }
@@ -1148,9 +1297,38 @@ function statusBadge(status){
   return `<span class="badge ${cls}">${label}</span>`;
 }
 
+const NOTIF_ICONS = {welcome:'👋',late:'⏰',late_reminder:'🚨',checkin:'✅',checkout:'🏁',task:'🗂️',points:'🏆',absent:'⚠️',leave:'🏖️',project:'📁',mention:'📣'};
+
 function notifBell(){
   const mine = state.notifications.filter(n=>n.userId===state.currentUser.id);
-  return `<button class="bell-btn" data-tab="notifications">🔔${mine.length?'<span class="bell-dot"></span>':''}</button>`;
+  const unread = state.unreadNotifCount;
+  return `<div class="notif-bell-wrap">
+    <button type="button" class="bell-btn" id="toggleNotifDropdown">🔔${unread>0?`<span class="bell-dot">${unread>9?'9+':unread}</span>`:''}</button>
+    ${state.notifDropdownOpen ? notifDropdownPanel(mine) : ''}
+  </div>`;
+}
+
+function notifDropdownPanel(mine){
+  const recent = mine.slice(0,15);
+  return `<div class="notif-dropdown">
+    <div class="notif-dropdown-head">
+      <b>الإشعارات</b>
+      ${state.unreadNotifCount>0?`<button type="button" id="markAllReadBtn" class="btn btn-ghost btn-sm" style="padding:4px 10px;font-size:11px;">تحديد الكل كمقروء</button>`:''}
+    </div>
+    <div class="notif-dropdown-body">
+      ${recent.length===0?`<div class="empty" style="padding:24px 10px;">لا توجد إشعارات بعد</div>`:recent.map(n=>`
+        <button type="button" class="notif-dropdown-item ${!n.isRead?'unread':''}" data-open-notif="${n.id}|${n.entityType||''}|${n.entityId||''}">
+          <span class="notif-icon">${NOTIF_ICONS[n.type]||'🔔'}</span>
+          <div style="flex:1;min-width:0;">
+            ${n.title?`<div style="font-weight:800;font-size:12px;">${n.title}</div>`:''}
+            <div class="notif-dropdown-msg">${n.message}</div>
+            <div style="font-size:10px;color:var(--text-faint);margin-top:2px;">${fmtDateTime(n.createdAt)}</div>
+          </div>
+          ${!n.isRead?'<span class="notif-unread-dot"></span>':''}
+        </button>`).join('')}
+    </div>
+    <button type="button" class="notif-dropdown-footer" data-tab="notifications" data-close-notif-dropdown="1">عرض كل الإشعارات ←</button>
+  </div>`;
 }
 
 /* ---------------- ADMIN APP ---------------- */
@@ -1165,6 +1343,7 @@ function renderAdmin(){
     {key:'attendance', icon:'attendance', label:'الدوام والإجازات'},
     {key:'rewards', icon:'rewards', label:'النقاط والمكافآت'},
     {key:'reports', icon:'reports', label:'التقارير'},
+    {key:'workload', icon:'rewards', label:'ضغط العمل'},
     {key:'claims', icon:'claims', label:'المطالبات المالية'},
     {key:'whatsapp', icon:'whatsapp', label:'ربط واتساب'},
     {key:'inbox', icon:'notifications', label:'صندوق الرسائل'},
@@ -1203,12 +1382,12 @@ function renderAdmin(){
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', projects:'المشاريع', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', prompts:'مكتبة البرومبتات', notifications:'سجل الإشعارات'}; }
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', projects:'المشاريع', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', workload:'ضغط العمل', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', prompts:'مكتبة البرومبتات', notifications:'سجل الإشعارات'}; }
 function adminSubs(){ return {
   dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
   tasks:'إنشاء متابعة المهام الفردية والمشتركة', projects:'مشاريع الوكالة، فرقها، ونسبة إنجازها', clients:'عملاء الوكالة وبيانات التواصل معهم', departments:'أقسام الشركة وتوزيع الموظفين عليها',
   attendance:'حالة الحضور والانصراف، ومراجعة طلبات الإجازة',
-  rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي',
+  rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي', workload:'مين محمّل أكتر، ومين عنده مجال ياخذ مهام إضافية',
   claims:'متابعة الحسابات والديون المستحقة على العملاء وإرسال تذكيرات',
   whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', inbox:'كل الرسائل الصادرة والواردة عبر واتساب في مكان واحد', prompts:'مكتبة برومبتات مشتركة لكل الفريق', notifications:'كل التنبيهات المُرسلة للفريق'
 }; }
@@ -1224,12 +1403,80 @@ function adminTabContent(){
     case 'attendance': return adminAttendance();
     case 'rewards': return adminRewards();
     case 'reports': return adminReports();
+    case 'workload': return workloadPage();
     case 'claims': return adminClaims();
     case 'whatsapp': return adminWhatsapp();
     case 'inbox': return adminInbox();
     case 'prompts': return promptsLibraryPage();
     case 'notifications': return notificationsList(true);
   }
+}
+
+function workloadLevelBadge(level){
+  const map = {low:['🟢 منخفض','badge-success'], medium:['🟡 متوسط','badge-warning'], high:['🔴 مرتفع','badge-danger']};
+  const [label,cls] = map[level] || map.low;
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+function workloadPage(){
+  const list = state.workload || [];
+  return `
+  <div class="card">
+    <div class="section-title">ضغط العمل الحالي لكل موظف <span style="font-size:11px;color:var(--text-faint);font-weight:600;">يُحسب تلقائيًا من المهام النشطة، المتأخرة، المستحقة قريبًا، والمشاريع النشطة</span></div>
+    ${list.length===0?`<div class="empty">جارِ التحميل أو لا يوجد موظفون بعد...</div>`:`
+    <div style="overflow-x:auto;">
+    <table><thead><tr><th>الموظف</th><th>القسم</th><th>نشطة</th><th>متأخرة</th><th>اليوم</th><th>هالأسبوع</th><th>بانتظار مراجعة</th><th>تحتاج تعديل</th><th>مشاريع نشطة</th><th>الضغط</th></tr></thead><tbody>
+    ${list.map(w=>`<tr>
+      <td style="font-weight:700;">${w.userName}</td>
+      <td style="color:var(--text-muted);font-size:12px;">${w.department||'—'}</td>
+      <td>${w.activeTasks}</td>
+      <td style="color:${w.overdueTasks>0?'var(--danger)':'inherit'};font-weight:${w.overdueTasks>0?'800':'400'};">${w.overdueTasks}</td>
+      <td>${w.dueToday}</td>
+      <td>${w.dueThisWeek}</td>
+      <td>${w.readyForReview}</td>
+      <td>${w.changesRequested}</td>
+      <td>${w.activeProjects}</td>
+      <td>${workloadLevelBadge(w.level)}</td>
+    </tr>`).join('')}
+    </tbody></table>
+    </div>`}
+  </div>`;
+}
+
+function executiveAttentionSection(){
+  const d = state.executiveDashboard;
+  if(!d) return `<div class="card" style="margin-bottom:16px;"><div class="empty">جارِ تحميل ملخص اليوم...</div></div>`;
+
+  const items = [];
+  if(d.attendance.late.length>0) items.push({icon:'⏰', color:'var(--warning)', text:`${d.attendance.late.length} موظف متأخر اليوم`, sub:d.attendance.late.map(x=>x.userName).join('، '), tab:'attendance'});
+  if(d.attendance.absent.length>0) items.push({icon:'❌', color:'var(--danger)', text:`${d.attendance.absent.length} موظف غائب حتى الآن`, sub:d.attendance.absent.map(x=>x.userName).join('، '), tab:'attendance'});
+  if(d.tasks.overdue.length>0) items.push({icon:'🔴', color:'var(--danger)', text:`${d.tasks.overdue.length} مهمة متأخرة`, sub:d.tasks.overdue.slice(0,3).map(x=>x.title).join('، '), tab:'tasks'});
+  if(d.tasks.dueToday.length>0) items.push({icon:'📅', color:'var(--warning)', text:`${d.tasks.dueToday.length} مهمة موعدها اليوم`, sub:d.tasks.dueToday.slice(0,3).map(x=>x.title).join('، '), tab:'tasks'});
+  if(d.tasks.readyForReview.length>0) items.push({icon:'🟣', color:'#6B3FD1', text:`${d.tasks.readyForReview.length} مهمة بانتظار مراجعتك`, sub:d.tasks.readyForReview.slice(0,3).map(x=>x.title).join('، '), tab:'tasks'});
+  if(d.tasks.changesRequested.length>0) items.push({icon:'🟡', color:'var(--warning)', text:`${d.tasks.changesRequested.length} مهمة طُلب تعديلها`, sub:d.tasks.changesRequested.slice(0,3).map(x=>x.title).join('، '), tab:'tasks'});
+  if(d.projects.overdue.length>0) items.push({icon:'📁', color:'var(--danger)', text:`${d.projects.overdue.length} مشروع متأخر التسليم`, sub:d.projects.overdue.slice(0,3).map(x=>x.name).join('، '), tab:'projects'});
+  if(d.projects.dueToday.length>0) items.push({icon:'📁', color:'var(--warning)', text:`${d.projects.dueToday.length} مشروع موعد تسليمه اليوم`, sub:d.projects.dueToday.map(x=>x.name).join('، '), tab:'projects'});
+  if(d.projects.lowProgressNearDeadline.length>0) items.push({icon:'⚠️', color:'var(--warning)', text:`${d.projects.lowProgressNearDeadline.length} مشروع تقدّمه بطيء وموعده قريب`, sub:d.projects.lowProgressNearDeadline.map(x=>`${x.name} (${x.progress}%)`).join('، '), tab:'projects'});
+  if(d.leaveRequests.pending.length>0) items.push({icon:'🏖️', color:'var(--warning)', text:`${d.leaveRequests.pending.length} طلب إجازة بانتظار المراجعة`, sub:d.leaveRequests.pending.map(x=>x.userName).join('، '), tab:'attendance'});
+  if(d.financial && (d.financial.dueTodayCount>0 || d.financial.overdueCount>0)) {
+    items.push({icon:'💰', color:'var(--danger)', text:`مطالبات مالية تحتاج متابعة: ${d.financial.dueTodayCount} اليوم، ${d.financial.overdueCount} متأخرة`, sub:`إجمالي متأخر: ${d.financial.overdueAmount.toLocaleString()}`, tab:'claims'});
+  }
+  if(d.whatsapp && d.whatsapp.conversationsNeedingReply>0) items.push({icon:'💬', color:'var(--warning)', text:`${d.whatsapp.conversationsNeedingReply} محادثة واتساب تحتاج ردًا`, sub:'', tab:'inbox'});
+
+  return `
+  <div class="card" style="margin-bottom:16px;">
+    <div class="section-title">🎯 يحتاج انتباهك اليوم ${items.length>0?`<span class="badge badge-danger">${items.length}</span>`:''}</div>
+    ${items.length===0?`<div class="empty">كل شي تمام، لا يوجد شي يحتاج انتباهك حاليًا 🎉</div>`:`
+    <div class="attention-grid">
+      ${items.map(it=>`
+        <div class="attention-item" data-tab="${it.tab}">
+          <span class="attention-icon" style="background:${it.color}1a;color:${it.color};">${it.icon}</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:700;font-size:13px;">${it.text}</div>
+            ${it.sub?`<div style="font-size:11px;color:var(--text-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.sub}</div>`:''}
+          </div>
+        </div>`).join('')}
+    </div>`}
+  </div>`;
 }
 
 function adminDashboard(){
@@ -1263,6 +1510,7 @@ function adminDashboard(){
   const pendingLeaves = (state.leaveRequests||[]).filter(l=>l.status==='pending');
 
   return `
+  ${executiveAttentionSection()}
   ${pendingLeaves.length>0?`
   <div class="whatsapp-banner" style="background:var(--warning-tint);border-color:rgba(217,121,26,0.3);color:#8A4E0E;cursor:pointer;" id="pendingLeavesBanner">
     🏖️ <div style="flex:1;"><b>${pendingLeaves.length} طلب إجازة بانتظار المراجعة:</b>
@@ -1858,8 +2106,12 @@ function taskDetailPage(t){
         </div>`;
       }).join('')}
     </div>
-    <form id="taskCommentForm" style="display:flex;gap:8px;margin-top:12px;">
-      <input name="message" placeholder="اكتب تعليقًا..." style="flex:1;padding:10px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-size:16px;" autocomplete="off" required/>
+    <form id="taskCommentForm" style="display:flex;gap:8px;margin-top:12px;position:relative;">
+      ${state.mentionDropdownOpen && state.mentionSuggestions.length>0 ? `
+      <div class="mention-dropdown">
+        ${state.mentionSuggestions.map(u=>`<button type="button" class="mention-item" data-select-mention="${u.id}|${u.name}">@${u.name}</button>`).join('')}
+      </div>` : ''}
+      <input id="taskCommentInput" name="message" placeholder="اكتب تعليقًا... استخدم @ لذكر شخص" style="flex:1;padding:10px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-size:16px;" autocomplete="off" required/>
       <button type="submit" class="btn btn-primary btn-sm">إرسال</button>
     </form>
   </div>
@@ -2493,13 +2745,19 @@ function whatsappBanner(){
 
 function notificationsList(all){
   const list = all ? state.notifications : state.notifications.filter(n=>n.userId===state.currentUser.id);
-  const icons = {welcome:'👋',late:'⏰',late_reminder:'🚨',checkin:'✅',checkout:'🏁',task:'🗂️',points:'🏆',absent:'⚠️'};
+  const mine = state.notifications.filter(n=>n.userId===state.currentUser.id);
+  const unreadMine = mine.filter(n=>!n.isRead).length;
   return `<div class="card">
     ${whatsappBanner()}
-    ${list.length===0?`<div class="empty">لا توجد إشعارات حتى الآن</div>`:list.slice(0,60).map(n=>{
+    ${!all && unreadMine>0?`<div style="margin-bottom:12px;"><button type="button" id="markAllReadBtnFull" class="btn btn-ghost btn-sm">تحديد الكل كمقروء (${unreadMine})</button></div>`:''}
+    ${list.length===0?`<div class="empty">لا توجد إشعارات حتى الآن</div>`:list.slice(0,80).map(n=>{
       const u = state.users.find(u=>u.id===n.userId);
-      return `<div class="notif-item"><div class="notif-icon">${icons[n.type]||'🔔'}</div>
-        <div><div class="notif-text">${all?`<b>${u?u.name:''}:</b> `:''}${n.message}</div><div class="notif-time">${fmtDateTime(n.createdAt)}</div></div></div>`;
+      const clickable = !all && (n.entityType==='task'||n.entityType==='project'||n.entityType==='leave');
+      return `<div class="notif-item ${!all && !n.isRead?'unread':''} ${clickable?'clickable':''}" ${clickable?`data-open-notif="${n.id}|${n.entityType||''}|${n.entityId||''}"`:''}>
+        <div class="notif-icon">${NOTIF_ICONS[n.type]||'🔔'}</div>
+        <div style="flex:1;"><div class="notif-text">${all?`<b>${u?u.name:''}:</b> `:''}${n.title?`<b>${n.title}</b> — `:''}${n.message}</div><div class="notif-time">${fmtDateTime(n.createdAt)}</div></div>
+        ${!all && !n.isRead?'<span class="notif-unread-dot"></span>':''}
+      </div>`;
     }).join('')}
   </div>`;
 }
@@ -2536,7 +2794,11 @@ function taskInlineForm(){
       <div class="field"><label>إسناد إلى (يمكن اختيار أكثر من موظف)</label>
         <div class="chip-select">
           ${employees.length===0?'<span style="font-size:12.5px;color:var(--text-faint)">أضف موظفين أولًا</span>':
-          employees.map(e=>`<button type="button" class="chip ${selectedAssignees.includes(e.id)?'sel':''}" data-assignee-chip="${e.id}">${e.name}</button>`).join('')}
+          employees.map(e=>{
+            const w = (state.workload||[]).find(x=>x.userId===e.id);
+            const dot = w ? (w.level==='high'?'🔴':w.level==='medium'?'🟡':'🟢') : '';
+            return `<button type="button" class="chip ${selectedAssignees.includes(e.id)?'sel':''}" data-assignee-chip="${e.id}">${dot} ${e.name}${w?` (${w.activeTasks})`:''}</button>`;
+          }).join('')}
         </div>
       </div>
       <div class="modal-actions">
@@ -2784,6 +3046,9 @@ function attachAppEvents(){
       const tab = el.getAttribute('data-tab');
       if(state.currentUser.role==='admin') state.adminTab = tab; else state.empTab = tab;
       if(tab==='inbox') state.waConversationsLoaded = false;
+      if(tab==='dashboard' && state.currentUser.role==='admin') loadExecutiveDashboard();
+      if(tab==='workload') loadWorkload();
+      state.notifDropdownOpen = false;
       state.mobileMenuOpen = false;
       render();
     });
@@ -2924,6 +3189,19 @@ function attachAppEvents(){
     const sel = document.getElementById('addMemberSelect');
     if(sel && sel.value) handleAddProjectMember(state.openProjectId, sel.value);
   });
+  document.getElementById('toggleNotifDropdown')?.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    state.notifDropdownOpen = !state.notifDropdownOpen;
+    render();
+  });
+  document.getElementById('markAllReadBtn')?.addEventListener('click', (e)=>{ e.stopPropagation(); handleMarkAllNotificationsRead(); });
+  document.getElementById('markAllReadBtnFull')?.addEventListener('click', handleMarkAllNotificationsRead);
+  document.querySelectorAll('[data-open-notif]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const [id, entityType, entityId] = el.getAttribute('data-open-notif').split('|');
+      handleOpenNotification(id, entityType, entityId);
+    });
+  });
   document.querySelectorAll('[data-open-task-from-project]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const id = el.getAttribute('data-open-task-from-project');
@@ -2932,7 +3210,7 @@ function attachAppEvents(){
       state.openTaskId = id;
       state.taskStatusLog = [];
       render();
-      loadTaskComments(id); loadTaskStatusLog(id); loadAttachments('task', id);
+      loadTaskComments(id); loadTaskStatusLog(id); loadAttachments('task', id); loadMentionableUsers(id);
       window.scrollTo({top:0, behavior:'smooth'});
     });
   });
@@ -2987,6 +3265,7 @@ function attachAppEvents(){
       loadTaskComments(id);
       loadTaskStatusLog(id);
       loadAttachments('task', id);
+      loadMentionableUsers(id);
       window.scrollTo({top:0, behavior:'smooth'});
     });
   });
@@ -3030,6 +3309,14 @@ function attachAppEvents(){
     if(!msg) return;
     addTaskComment(state.openTaskId, msg);
     e.target.message.value = '';
+  });
+  document.getElementById('taskCommentInput')?.addEventListener('input', handleCommentInput);
+  document.querySelectorAll('[data-select-mention]').forEach(el=>{
+    el.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const [uid, uname] = el.getAttribute('data-select-mention').split('|');
+      handleSelectMention(parseInt(uid), uname);
+    });
   });
   document.getElementById('teamChatForm')?.addEventListener('submit', (e)=>{
     e.preventDefault();

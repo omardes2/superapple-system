@@ -336,3 +336,97 @@ function extractMentionedUserIds($message, $mentionableUsers) {
     return array_unique($found);
 }
 
+/* =========================================================
+   Executive Dashboard — Phase 2 Batch 3
+   استعلامات مجمّعة بدون N+1، وتحترم صلاحيات كل قسم
+   ========================================================= */
+function getExecutiveDashboard($pdo, $user) {
+    $today = date('Y-m-d');
+    $isFriday = (date('N') == 5);
+    $s = $pdo->query("SELECT grace_minutes FROM settings WHERE id = 1")->fetch();
+    $grace = (int) $s['grace_minutes'];
+
+    /* ---- الحضور: المتأخرون اليوم + الغائبون حتى الآن (يحترمون فترة السماح، الجمعة، والإجازات المعتمدة) ---- */
+    $late = $pdo->prepare("
+        SELECT u.id AS userId, u.name AS userName, a.check_in AS checkIn
+        FROM attendance a JOIN users u ON u.id = a.user_id
+        WHERE a.date = ? AND a.status = 'late'
+        ORDER BY a.check_in
+    ");
+    $late->execute([$today]);
+    $lateList = $late->fetchAll();
+
+    $absentList = [];
+    if (!$isFriday) {
+        $absentList = $pdo->prepare("
+            SELECT u.id AS userId, u.name AS userName, u.work_start AS workStart
+            FROM users u
+            WHERE u.role = 'employee'
+              AND NOT EXISTS (SELECT 1 FROM attendance a WHERE a.user_id = u.id AND a.date = ?)
+              AND NOT EXISTS (
+                    SELECT 1 FROM leave_requests lr
+                    WHERE lr.user_id = u.id AND lr.status = 'approved'
+                      AND ? BETWEEN lr.start_date AND lr.end_date
+              )
+              AND ADDTIME(u.work_start, SEC_TO_TIME(? * 60)) < CURTIME()
+        ");
+        $absentList->execute([$today, $today, $grace]);
+        $absentList = $absentList->fetchAll();
+    }
+
+    /* ---- المهام ---- */
+    $overdueTasks = $pdo->query("SELECT id, title FROM tasks WHERE status != 'done' AND deadline IS NOT NULL AND deadline < CURDATE() ORDER BY deadline LIMIT 50")->fetchAll();
+    $dueTodayTasks = $pdo->query("SELECT id, title FROM tasks WHERE status != 'done' AND deadline = CURDATE() LIMIT 50")->fetchAll();
+    $readyForReviewTasks = $pdo->query("SELECT id, title FROM tasks WHERE status = 'ready_for_review' LIMIT 50")->fetchAll();
+    $changesRequestedTasks = $pdo->query("SELECT id, title FROM tasks WHERE status = 'changes_requested' LIMIT 50")->fetchAll();
+
+    /* ---- المشاريع ---- */
+    $overdueProjects = $pdo->query("SELECT id, name, due_date AS dueDate FROM projects WHERE status NOT IN ('completed','cancelled') AND due_date IS NOT NULL AND due_date < CURDATE() ORDER BY due_date")->fetchAll();
+    $dueTodayProjects = $pdo->query("SELECT id, name FROM projects WHERE status NOT IN ('completed','cancelled') AND due_date = CURDATE()")->fetchAll();
+    $lowProgressProjects = [];
+    $nearDeadline = $pdo->query("SELECT id, name, due_date AS dueDate, progress_manual AS progressManual FROM projects WHERE status NOT IN ('completed','cancelled') AND due_date IS NOT NULL AND due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)")->fetchAll();
+    foreach ($nearDeadline as $p) {
+        $progress = computeProjectProgress($pdo, $p['id'], $p['progressManual']);
+        if ($progress < 50) $lowProgressProjects[] = ['id' => $p['id'], 'name' => $p['name'], 'dueDate' => $p['dueDate'], 'progress' => $progress];
+    }
+
+    /* ---- الإجازات المعلّقة ---- */
+    $pendingLeaves = $pdo->query("
+        SELECT lr.id, u.name AS userName, lr.start_date AS startDate, lr.end_date AS endDate
+        FROM leave_requests lr JOIN users u ON u.id = lr.user_id
+        WHERE lr.status = 'pending' ORDER BY lr.id DESC
+    ")->fetchAll();
+
+    $result = [
+        'attendance' => ['late' => $lateList, 'absent' => $absentList],
+        'tasks' => ['overdue' => $overdueTasks, 'dueToday' => $dueTodayTasks, 'readyForReview' => $readyForReviewTasks, 'changesRequested' => $changesRequestedTasks],
+        'projects' => ['overdue' => $overdueProjects, 'dueToday' => $dueTodayProjects, 'lowProgressNearDeadline' => $lowProgressProjects],
+        'leaveRequests' => ['pending' => $pendingLeaves],
+    ];
+
+    /* ---- المطالبات المالية: تُرجع فقط لمن يملك الصلاحية أصلًا — وإلا ما تُرجع إطلاقًا ---- */
+    if ($user['role'] === 'admin' || $user['canSendClaims']) {
+        $dueToday = $pdo->query("SELECT COUNT(*) c, COALESCE(SUM(amount - paid_amount),0) total FROM financial_claims WHERE due_date = CURDATE() AND (amount - paid_amount) > 0")->fetch();
+        $overdue = $pdo->query("SELECT COUNT(*) c, COALESCE(SUM(amount - paid_amount),0) total FROM financial_claims WHERE due_date < CURDATE() AND (amount - paid_amount) > 0")->fetch();
+        $result['financial'] = [
+            'dueTodayCount' => (int) $dueToday['c'], 'dueTodayAmount' => (float) $dueToday['total'],
+            'overdueCount' => (int) $overdue['c'], 'overdueAmount' => (float) $overdue['total'],
+        ];
+    }
+
+    /* ---- واتساب: عدد المحادثات اللي آخر رسالة فيها واردة (تحتاج متابعة) — مقياس دقيق فقط، بدون تخمين ---- */
+    try {
+        $needsReply = $pdo->query("
+            SELECT COUNT(*) c FROM (
+                SELECT phone, SUBSTRING_INDEX(GROUP_CONCAT(direction ORDER BY id DESC), ',', 1) AS lastDirection
+                FROM whatsapp_messages GROUP BY phone
+            ) x WHERE x.lastDirection = 'in'
+        ")->fetch();
+        $result['whatsapp'] = ['conversationsNeedingReply' => (int) $needsReply['c']];
+    } catch (\Throwable $e) {
+        // جدول واتساب قد لا يكون موجودًا على استضافات لم تُحدَّث بعد — لا نخترع رقمًا، نتخطى القسم بأمان
+    }
+
+    return $result;
+}
+

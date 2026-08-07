@@ -457,9 +457,18 @@ switch ($action) {
         $stmt->execute([$taskId]);
         $task = $stmt->fetch();
 
-        // استخراج المنشن: فقط من ضمن الأشخاص المسموح ذكرهم بهذه المهمة تحديدًا (Server-side enforced)
+        // استخراج المنشن: الأولوية لـ user IDs الصريحة القادمة من اختيار الواجهة (mentionedUserIds)
+        // — مو تحليل نص فقط. بكل الأحوال، كل ID (سواء من الواجهة أو fallback تحليل النص) يُتحقق منه
+        // Server-side ضد قائمة المسموح ذكرهم فعليًا بهذه المهمة تحديدًا، بدون أي ثقة عمياء بالواجهة.
         $mentionable = getMentionableUsers($pdo, $taskId);
-        $mentionedIds = extractMentionedUserIds($message, $mentionable);
+        $allowedIds = array_map(fn($u) => (int) $u['id'], $mentionable);
+
+        if (!empty($b['mentionedUserIds']) && is_array($b['mentionedUserIds'])) {
+            $mentionedIds = array_values(array_intersect(array_map('intval', $b['mentionedUserIds']), $allowedIds));
+        } else {
+            // fallback للتوافق: تحليل نصي لو الواجهة ما بعثت IDs صريحة لأي سبب
+            $mentionedIds = extractMentionedUserIds($message, $mentionable);
+        }
         $mentionedIds = array_filter($mentionedIds, fn($uid) => $uid != $user['id']); // ما تذكر نفسك
         foreach ($mentionedIds as $mid) {
             try {
@@ -976,6 +985,12 @@ switch ($action) {
         $pdo->prepare("UPDATE notifications SET is_read = 1, read_at = NOW() WHERE user_id = ? AND is_read = 0")
             ->execute([$user['id']]);
         respond(['success' => true]);
+    }
+
+    /* ============ Phase 2 Batch 3: Executive Dashboard ============ */
+    case 'executiveDashboard': {
+        $user = requireAdmin($pdo);
+        respond(getExecutiveDashboard($pdo, $user));
     }
 
     /* ============ سير مراجعة المهام (State Machine محكوم) ============ */
