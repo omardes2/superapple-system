@@ -328,7 +328,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [],
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [], motivationMessages: [], motivationSentToday: 0,
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'active', pointsMonth: null, reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -988,6 +988,34 @@ async function loadExecutiveDashboard(){
   state.executiveDashboard = res;
   safeRender();
 }
+/* ---------------- الرسائل التحفيزية ---------------- */
+async function loadMotivationMessages(){
+  const res = await apiPost('motivationMessages', {});
+  if(res.error) return;
+  state.motivationMessages = res.messages || [];
+  state.motivationSentToday = res.sentToday || 0;
+  safeRender();
+}
+async function handleAddMotivation(e){
+  e.preventDefault();
+  const f = e.target;
+  const res = await apiPost('addMotivationMessages', { messages: f.messages.value });
+  if(res.error){ showToast(res.error); return; }
+  f.messages.value = '';
+  await loadMotivationMessages();
+  showToast(`تمت إضافة ${res.added} رسالة ✅`);
+}
+async function handleToggleMotivation(id, active){
+  await apiPost('toggleMotivationMessage', { id, active });
+  await loadMotivationMessages();
+}
+async function handleRemoveMotivation(id){
+  if(!confirm('حذف هذه الرسالة نهائيًا؟')) return;
+  await apiPost('removeMotivationMessage', { id });
+  await loadMotivationMessages();
+  showToast('تم الحذف');
+}
+
 async function loadWorkload(){
   const res = await apiPost('workloadReport', {});
   if(res.error) return;
@@ -1398,6 +1426,7 @@ function renderAdmin(){
     {key:'whatsapp', icon:'whatsapp', label:'ربط واتساب'},
     {key:'inbox', icon:'notifications', label:'صندوق الرسائل'},
     {key:'prompts', icon:'prompts', label:'مكتبة البرومبتات'},
+    {key:'motivation', icon:'rewards', label:'الرسائل التحفيزية'},
     {key:'notifications', icon:'notifications', label:'الإشعارات'},
   ];
   return `
@@ -1432,14 +1461,14 @@ function renderAdmin(){
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
 }
-function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', projects:'المشاريع', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', workload:'ضغط العمل', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', prompts:'مكتبة البرومبتات', notifications:'سجل الإشعارات'}; }
+function adminTitles(){ return {dashboard:'نظرة عامة', employees:'إدارة الموظفين', tasks:'إدارة المهام', projects:'المشاريع', clients:'العملاء', departments:'الأقسام', attendance:'الدوام والإجازات', rewards:'النقاط والمكافآت', reports:'التقارير الشهرية', workload:'ضغط العمل', claims:'المطالبات المالية', whatsapp:'ربط واتساب', inbox:'صندوق الرسائل', prompts:'مكتبة البرومبتات', motivation:'الرسائل التحفيزية', notifications:'سجل الإشعارات'}; }
 function adminSubs(){ return {
   dashboard:'ملخص سريع لحالة الفريق اليوم', employees:'إضافة، تعديل، وحذف حسابات الموظفين',
   tasks:'إنشاء متابعة المهام الفردية والمشتركة', projects:'مشاريع الوكالة، فرقها، ونسبة إنجازها', clients:'عملاء الوكالة وبيانات التواصل معهم', departments:'أقسام الشركة وتوزيع الموظفين عليها',
   attendance:'حالة الحضور والانصراف، ومراجعة طلبات الإجازة',
   rewards:'قواعد احتساب النقاط وترتيب الفريق', reports:'أداء كل موظف خلال الشهر الحالي', workload:'مين محمّل أكتر، ومين عنده مجال ياخذ مهام إضافية',
   claims:'متابعة الحسابات والديون المستحقة على العملاء وإرسال تذكيرات',
-  whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', inbox:'كل الرسائل الصادرة والواردة عبر واتساب في مكان واحد', prompts:'مكتبة برومبتات مشتركة لكل الفريق', notifications:'كل التنبيهات المُرسلة للفريق'
+  whatsapp:'اربط رقم الشركة على واتساب لإرسال الإشعارات تلقائيًا', inbox:'كل الرسائل الصادرة والواردة عبر واتساب في مكان واحد', prompts:'مكتبة برومبتات مشتركة لكل الفريق', motivation:'رسائل تحفيزية تُرسل تلقائيًا للموظفين بعد تسجيل حضورهم', notifications:'كل التنبيهات المُرسلة للفريق'
 }; }
 
 function adminTabContent(){
@@ -1458,6 +1487,7 @@ function adminTabContent(){
     case 'whatsapp': return adminWhatsapp();
     case 'inbox': return adminInbox();
     case 'prompts': return promptsLibraryPage();
+    case 'motivation': return motivationPage();
     case 'notifications': return notificationsList(true);
   }
 }
@@ -2734,6 +2764,64 @@ function teamChatWidget(){
   </div>`;
 }
 
+function motivationPage(){
+  const s = state.settings || {};
+  const on = !!Number(s.motivationEnabled);
+  const list = state.motivationMessages || [];
+  const activeCount = list.filter(m=>Number(m.isActive)).length;
+  return `
+  <div class="card" style="margin-bottom:16px;${on?'border-color:var(--success);':''}">
+    <div class="section-title">💛 الرسائل التحفيزية اليومية
+      <span class="badge ${on?'badge-success':'badge-muted'}">${on?'مفعّلة':'معطّلة'}</span>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);line-height:1.8;margin-bottom:12px;">
+      لما تفعّلها، كل موظف بيستلم رسالة واتساب تحفيزية <b>مرة وحدة باليوم</b> بعد مرور المدة المحددة من تسجيل حضوره.
+      النظام بيختار رسالة ما استلمها الموظف من قبل، فما بتتكرر عليه إلا لما تخلص كل الرسائل.
+    </p>
+    <div class="grid grid-3" style="margin-bottom:14px;">
+      <div class="card stat-card"><div class="stat-label">إجمالي الرسائل</div><div class="stat-value">${list.length}</div></div>
+      <div class="card stat-card"><div class="stat-label">المفعّلة</div><div class="stat-value" style="color:var(--success);">${activeCount}</div></div>
+      <div class="card stat-card"><div class="stat-label">أُرسلت اليوم</div><div class="stat-value" style="color:var(--primary);">${state.motivationSentToday ?? 0}</div></div>
+    </div>
+    <form id="motivationSettingsForm">
+      <div class="field"><label>ترسل بعد كم دقيقة من تسجيل الحضور</label>
+        <input name="delayMinutes" type="number" min="0" max="600" value="${s.motivationDelayMinutes ?? 60}"/>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:12px 0;">
+        <input type="checkbox" name="enabled" ${on?'checked':''} style="width:17px;height:17px;"/>
+        تفعيل الإرسال التلقائي اليومي
+      </label>
+      <button type="submit" class="btn btn-primary" style="width:100%;">حفظ الإعدادات</button>
+    </form>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="section-title">➕ إضافة رسائل</div>
+    <form id="addMotivationForm">
+      <div class="field"><label>اكتب كل رسالة بسطر منفصل — تقدر تلصق مئات الرسائل مرة وحدة</label>
+        <textarea name="messages" rows="6" placeholder="صباح الخير! يوم موفق إن شاء الله&#10;التزامك ملحوظ ومقدَّر&#10;كل مهمة بتخلّصها خطوة للأمام" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;font-size:15px;line-height:1.9;" required></textarea>
+      </div>
+      <p style="font-size:11px;color:var(--text-faint);margin-bottom:10px;">💡 اسم الموظف بينضاف تلقائيًا بأول كل رسالة (مثال: «محمد، صباح الخير!»)</p>
+      <button type="submit" class="btn btn-primary" style="width:100%;">إضافة الرسائل</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="section-title">📋 كل الرسائل (${list.length})</div>
+    ${list.length===0?`<div class="empty">ما في رسائل بعد — أضف رسائلك من الأعلى</div>`:`
+    <div style="max-height:520px;overflow-y:auto;">
+    ${list.map(m=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border);${Number(m.isActive)?'':'opacity:0.5;'}">
+        <span style="flex:1;font-size:13px;line-height:1.7;">${m.message}</span>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-faint);flex:none;cursor:pointer;">
+          <input type="checkbox" data-toggle-motivation="${m.id}" ${Number(m.isActive)?'checked':''} style="width:15px;height:15px;"/> مفعّلة
+        </label>
+        <button class="task-card-menu-btn" data-remove-motivation="${m.id}" title="حذف">🗑️</button>
+      </div>`).join('')}
+    </div>`}
+  </div>`;
+}
+
 function promptsLibraryPage(){
   const cats = {image:['🖼️ صور','badge-primary'], video:['🎬 فيديو','badge-inprogress'], other:['📄 أخرى','badge-muted']};
   const filter = state.promptFilter || 'all';
@@ -3203,6 +3291,7 @@ function attachAppEvents(){
       if(tab==='inbox') state.waConversationsLoaded = false;
       if(tab==='dashboard' && state.currentUser.role==='admin') loadExecutiveDashboard();
       if(tab==='workload') loadWorkload();
+      if(tab==='motivation') loadMotivationMessages();
       state.notifDropdownOpen = false;
       state.mobileMenuOpen = false;
       render();
@@ -3546,6 +3635,21 @@ function attachAppEvents(){
       ()=> showToast('تعذر تحديد موقعك — تأكد من السماح للموقع بالوصول لخدمة الموقع'),
       { enableHighAccuracy:true, timeout:10000 }
     );
+  });
+  document.getElementById('addMotivationForm')?.addEventListener('submit', handleAddMotivation);
+  document.querySelectorAll('[data-toggle-motivation]').forEach(el=>{
+    el.addEventListener('change', ()=> handleToggleMotivation(el.getAttribute('data-toggle-motivation'), el.checked));
+  });
+  document.querySelectorAll('[data-remove-motivation]').forEach(el=>{
+    el.addEventListener('click', ()=> handleRemoveMotivation(el.getAttribute('data-remove-motivation')));
+  });
+  document.getElementById('motivationSettingsForm')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const f = e.target;
+    const res = await apiPost('updateMotivationSettings', { enabled: f.enabled.checked, delayMinutes: f.delayMinutes.value });
+    if(res.error){ showToast(res.error); return; }
+    await refresh();
+    showToast(f.enabled.checked ? 'تم تفعيل الرسائل التحفيزية 💛' : 'تم حفظ الإعدادات (معطّلة حاليًا)');
   });
   document.getElementById('geofenceForm')?.addEventListener('submit', async (e)=>{
     e.preventDefault();

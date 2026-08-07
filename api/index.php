@@ -146,7 +146,8 @@ switch ($action) {
             whatsapp_phone_id AS whatsappPhoneId, whatsapp_token AS whatsappToken, whatsapp_template AS whatsappTemplate,
             whatsapp_verify_token AS whatsappVerifyToken, whatsapp_app_secret AS whatsappAppSecret,
             geofence_enabled AS geofenceEnabled, office_latitude AS officeLatitude,
-            office_longitude AS officeLongitude, geofence_radius AS geofenceRadius
+            office_longitude AS officeLongitude, geofence_radius AS geofenceRadius,
+            motivation_enabled AS motivationEnabled, motivation_delay_minutes AS motivationDelayMinutes
             FROM settings WHERE id = 1")->fetch();
 
         $payload = ['hasUsers' => $hasUsers, 'currentUser' => $currentUser, 'settings' => $settingsRow ?: null];
@@ -584,6 +585,57 @@ switch ($action) {
     }
 
     /* ============ إعدادات النقاط ============ */
+    /* ============ الرسائل التحفيزية ============ */
+    case 'motivationMessages': {
+        requireAdmin($pdo);
+        $rows = $pdo->query("SELECT id, message, is_active AS isActive, created_at AS createdAt FROM motivation_messages ORDER BY id DESC")->fetchAll();
+        $sentToday = $pdo->query("SELECT COUNT(*) c FROM motivation_log WHERE sent_date = CURDATE() AND success = 1")->fetch();
+        respond(['messages' => $rows, 'sentToday' => (int) $sentToday['c']]);
+    }
+
+    case 'addMotivationMessages': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $raw = trim($b['messages'] ?? '');
+        if ($raw === '') respond(['error' => 'اكتب رسالة واحدة على الأقل'], 400);
+        // كل سطر = رسالة منفصلة (يسهّل إضافة دفعة كبيرة مرة وحدة)
+        $lines = array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $raw)), fn($l) => $l !== '');
+        if (empty($lines)) respond(['error' => 'ما في رسائل صالحة'], 400);
+        $ins = $pdo->prepare("INSERT INTO motivation_messages (message) VALUES (?)");
+        $count = 0;
+        foreach ($lines as $line) { $ins->execute([mb_substr($line, 0, 900)]); $count++; }
+        respond(['success' => true, 'added' => $count]);
+    }
+
+    case 'toggleMotivationMessage': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("UPDATE motivation_messages SET is_active = ? WHERE id = ?")
+            ->execute([!empty($b['active']) ? 1 : 0, $b['id'] ?? 0]);
+        respond(['success' => true]);
+    }
+
+    case 'removeMotivationMessage': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("DELETE FROM motivation_messages WHERE id = ?")->execute([$b['id'] ?? 0]);
+        respond(['success' => true]);
+    }
+
+    case 'updateMotivationSettings': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $enabled = !empty($b['enabled']) ? 1 : 0;
+        $delay = max(0, min(600, (int) ($b['delayMinutes'] ?? 60)));
+        if ($enabled) {
+            $has = $pdo->query("SELECT COUNT(*) c FROM motivation_messages WHERE is_active = 1")->fetch();
+            if (!(int) $has['c']) respond(['error' => 'أضف رسالة واحدة مفعّلة على الأقل قبل التفعيل'], 400);
+        }
+        $pdo->prepare("UPDATE settings SET motivation_enabled = ?, motivation_delay_minutes = ? WHERE id = 1")
+            ->execute([$enabled, $delay]);
+        respond(['success' => true]);
+    }
+
     case 'updateGeofence': {
         requireAdmin($pdo);
         $b = bodyInput();
