@@ -2510,11 +2510,15 @@ function reportsPoints(){
   const range = reportRangeFor(state.reportFilter);
   const start = new Date(range.from+'T00:00:00'), end = new Date(range.to+'T23:59:59');
   const monthPoints = state.points.filter(p=>new Date(p.date)>=start && new Date(p.date)<=end).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  // الصدارة تُحسب من نفس نطاق الفلتر المختار بالضبط (مو الشهر الحالي دايمًا)
+  const rangeLeaderboard = state.users.filter(u=>u.role==='employee')
+    .map(u=>({u, pts: monthPoints.filter(p=>p.userId===u.id).reduce((s,p)=>s+p.points,0)}))
+    .sort((a,b)=>b.pts-a.pts);
   return `
   <div class="grid grid-2">
     <div class="card">
-      <div class="section-title">🏆 لوحة الصدارة</div>
-      ${leaderboard().map((t,i)=>`
+      <div class="section-title">🏆 لوحة الصدارة <span style="font-size:11px;color:var(--text-faint);font-weight:600;">${fmtDate(range.from)} — ${fmtDate(range.to)}</span></div>
+      ${rangeLeaderboard.map((t,i)=>`
         <div class="assignee-row"><span>${i+1}. ${t.u.name}</span><b style="color:var(--primary)">${t.pts}</b></div>`).join('') || `<div class="empty">لا يوجد بعد</div>`}
     </div>
     <div class="card">
