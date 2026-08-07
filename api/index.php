@@ -257,6 +257,51 @@ switch ($action) {
     }
 
     /* ============ إدارة الموظفين (مدير فقط) ============ */
+    /* ============ تغيير كلمة السر ============ */
+    case 'changeMyPassword': {
+        // أي مستخدم يغيّر كلمة سره بنفسه — لازم يعرف القديمة
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $current = $b['currentPassword'] ?? '';
+        $new = $b['newPassword'] ?? '';
+
+        if (mb_strlen($new) < 6) respond(['error' => 'كلمة السر الجديدة لازم تكون 6 خانات على الأقل'], 400);
+
+        $stmt = $pdo->prepare("SELECT password_hash FROM users WHERE id = ?");
+        $stmt->execute([$user['id']]);
+        $row = $stmt->fetch();
+        if (!$row || !password_verify($current, $row['password_hash'])) {
+            respond(['error' => 'كلمة السر الحالية غير صحيحة'], 403);
+        }
+
+        $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+            ->execute([password_hash($new, PASSWORD_BCRYPT), $user['id']]);
+        respond(['success' => true]);
+    }
+
+    case 'resetEmployeePassword': {
+        // المدير يعيّن كلمة سر جديدة لموظف (بدون الحاجة للقديمة)
+        $admin = requireAdmin($pdo);
+        $b = bodyInput();
+        $targetId = (int) ($b['id'] ?? 0);
+        $new = $b['newPassword'] ?? '';
+
+        if (mb_strlen($new) < 6) respond(['error' => 'كلمة السر لازم تكون 6 خانات على الأقل'], 400);
+
+        $stmt = $pdo->prepare("SELECT id, name, role FROM users WHERE id = ?");
+        $stmt->execute([$targetId]);
+        $target = $stmt->fetch();
+        if (!$target) respond(['error' => 'المستخدم غير موجود'], 404);
+        // حماية: المدير ما يقدر يغيّر كلمة سر مدير آخر من هون (يغيّر تبعه من صفحته الشخصية)
+        if ($target['role'] === 'admin' && $target['id'] != $admin['id']) {
+            respond(['error' => 'ما تقدر تغيّر كلمة سر مدير آخر'], 403);
+        }
+
+        $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+            ->execute([password_hash($new, PASSWORD_BCRYPT), $targetId]);
+        respond(['success' => true, 'name' => $target['name']]);
+    }
+
     case 'addEmployee': {
         $admin = requireAdmin($pdo);
         $b = bodyInput();

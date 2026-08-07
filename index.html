@@ -328,7 +328,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [], motivationMessages: [], motivationSentToday: 0,
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [], motivationMessages: [], motivationSentToday: 0, myPasswordModal: false, resetPassModal: null,
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'active', pointsMonth: null, reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -988,6 +988,28 @@ async function loadExecutiveDashboard(){
   state.executiveDashboard = res;
   safeRender();
 }
+/* ---------------- تغيير كلمة السر ---------------- */
+async function handleMyPassword(e){
+  e.preventDefault();
+  const f = e.target;
+  if(f.newPassword.value !== f.confirmPassword.value){ showToast('كلمتا السر الجديدتان غير متطابقتين'); return; }
+  const res = await apiPost('changeMyPassword', { currentPassword: f.currentPassword.value, newPassword: f.newPassword.value });
+  if(res.error){ showToast(res.error); return; }
+  state.myPasswordModal = false;
+  render();
+  showToast('تم تغيير كلمة السر بنجاح ✅');
+}
+async function handleResetPassword(e){
+  e.preventDefault();
+  const f = e.target;
+  const res = await apiPost('resetEmployeePassword', { id: f.id.value, newPassword: f.newPassword.value });
+  if(res.error){ showToast(res.error); return; }
+  const newPass = f.newPassword.value;
+  state.resetPassModal = null;
+  render();
+  showToast(`تم تعيين كلمة السر لـ${res.name} — سلّمها له: ${newPass}`);
+}
+
 /* ---------------- الرسائل التحفيزية ---------------- */
 async function loadMotivationMessages(){
   const res = await apiPost('motivationMessages', {});
@@ -1439,7 +1461,8 @@ function renderAdmin(){
       <div class="sidebar-foot">
         <div class="user-chip"><div class="avatar">${state.currentUser.name[0]}</div>
           <div><div class="user-chip-name">${state.currentUser.name}</div><div class="user-chip-role">مدير</div></div></div>
-        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" id="logoutBtn">تسجيل الخروج</button>
+        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" id="myPasswordBtn">🔑 تغيير كلمة السر</button>
+        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:6px;" id="logoutBtn">تسجيل الخروج</button>
       </div>
     </div>
     <div class="main">
@@ -1457,6 +1480,8 @@ function renderAdmin(){
   ${state.clientModal ? clientModal() : ''}
   ${state.departmentModal ? departmentModal() : ''}
   ${state.scheduleModal ? scheduleModal() : ''}
+  ${state.resetPassModal ? resetPasswordModal() : ''}
+  ${state.myPasswordModal ? myPasswordModal() : ''}
   ${teamChatWidget()}
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
@@ -1771,9 +1796,44 @@ function adminEmployees(){
       <td dir="ltr" style="font-size:11.5px;">${(e.workStart||'').slice(0,5)} – ${(e.workEnd||'').slice(0,5)} <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;margin-right:4px;" data-edit-schedule="${e.id}|${e.workStart}|${e.workEnd}">تعديل</button></td>
       <td><span class="badge badge-primary">${userPoints(e.id)}</span></td>
       <td style="text-align:center;"><input type="checkbox" data-toggle-permission="${e.id}" ${e.canSendClaims?'checked':''} style="width:18px;height:18px;cursor:pointer;"/></td>
-      <td><button class="btn btn-danger btn-sm" data-remove-emp="${e.id}">حذف</button></td></tr>`).join('')}
+      <td style="display:flex;gap:6px;">
+        <button class="btn btn-ghost btn-sm task-card-btn" data-reset-pass="${e.id}|${e.name}" title="تغيير كلمة السر">🔑</button>
+        <button class="btn btn-danger btn-sm task-card-btn" data-remove-emp="${e.id}">حذف</button>
+      </td></tr>`).join('')}
     </tbody></table>`}
   </div>`;
+}
+
+function myPasswordModal(){
+  return `<div class="modal-bg" id="myPasswordModalBg"><div class="modal">
+    <h3 class="modal-title">🔑 تغيير كلمة السر</h3>
+    <form id="myPasswordForm">
+      <div class="field"><label>كلمة السر الحالية</label><input name="currentPassword" type="password" required autocomplete="current-password"/></div>
+      <div class="field"><label>كلمة السر الجديدة (6 خانات على الأقل)</label><input name="newPassword" type="password" minlength="6" required autocomplete="new-password"/></div>
+      <div class="field"><label>تأكيد كلمة السر الجديدة</label><input name="confirmPassword" type="password" minlength="6" required autocomplete="new-password"/></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="closeMyPasswordModal" style="flex:1;">إلغاء</button>
+        <button type="submit" class="btn btn-primary" style="flex:1;">حفظ</button>
+      </div>
+    </form>
+  </div></div>`;
+}
+
+function resetPasswordModal(){
+  const [id, name] = state.resetPassModal.split('|');
+  return `<div class="modal-bg" id="resetPassModalBg"><div class="modal">
+    <h3 class="modal-title">🔑 تعيين كلمة سر جديدة</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">للموظف: <b>${name}</b></p>
+    <form id="resetPassForm">
+      <input type="hidden" name="id" value="${id}"/>
+      <div class="field"><label>كلمة السر الجديدة (6 خانات على الأقل)</label><input name="newPassword" type="text" minlength="6" required autocomplete="off"/></div>
+      <p style="font-size:11.5px;color:var(--text-faint);line-height:1.7;margin-bottom:10px;">💡 اكتبها بوضوح واعطها للموظف — ما فيه طريقة تستعيدها لاحقًا لأنها بتُحفظ مشفّرة.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="closeResetPassModal" style="flex:1;">إلغاء</button>
+        <button type="submit" class="btn btn-primary" style="flex:1;">تعيين</button>
+      </div>
+    </form>
+  </div></div>`;
 }
 
 function scheduleModal(){
@@ -3067,7 +3127,8 @@ function renderEmployee(){
       <div class="sidebar-foot">
         <div class="user-chip"><div class="avatar">${state.currentUser.name[0]}</div>
           <div><div class="user-chip-name">${state.currentUser.name}</div><div class="user-chip-role">${state.currentUser.department}</div></div></div>
-        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" id="logoutBtn">تسجيل الخروج</button>
+        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" id="myPasswordBtn">🔑 تغيير كلمة السر</button>
+        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:6px;" id="logoutBtn">تسجيل الخروج</button>
       </div>
     </div>
     <div class="main">
@@ -3079,6 +3140,7 @@ function renderEmployee(){
     </div>
   </div>
   ${state.leaveModal ? leaveModal() : ''}
+  ${state.myPasswordModal ? myPasswordModal() : ''}
   ${teamChatWidget()}
   ${state.toast ? `<div class="toast">${state.toast}</div>` : ''}
   `;
@@ -3641,6 +3703,16 @@ function attachAppEvents(){
       { enableHighAccuracy:true, timeout:10000 }
     );
   });
+  document.getElementById('myPasswordBtn')?.addEventListener('click', ()=>{ state.myPasswordModal = true; render(); });
+  document.getElementById('closeMyPasswordModal')?.addEventListener('click', ()=>{ state.myPasswordModal = false; render(); });
+  document.getElementById('myPasswordModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='myPasswordModalBg'){ state.myPasswordModal=false; render(); }});
+  document.getElementById('myPasswordForm')?.addEventListener('submit', handleMyPassword);
+  document.querySelectorAll('[data-reset-pass]').forEach(el=>{
+    el.addEventListener('click', ()=>{ state.resetPassModal = el.getAttribute('data-reset-pass'); render(); });
+  });
+  document.getElementById('closeResetPassModal')?.addEventListener('click', ()=>{ state.resetPassModal = null; render(); });
+  document.getElementById('resetPassModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='resetPassModalBg'){ state.resetPassModal=null; render(); }});
+  document.getElementById('resetPassForm')?.addEventListener('submit', handleResetPassword);
   document.getElementById('addMotivationForm')?.addEventListener('submit', handleAddMotivation);
   document.querySelectorAll('[data-toggle-motivation]').forEach(el=>{
     el.addEventListener('change', ()=> handleToggleMotivation(el.getAttribute('data-toggle-motivation'), el.checked));
