@@ -29,8 +29,9 @@ $today = date('Y-m-d');
 
 /* ============================================================
    الرسائل التحفيزية اليومية
-   تُرسل لكل موظف مرّة واحدة باليوم، بعد مرور مدة محددة من تسجيل حضوره الفعلي.
-   الاختيار ذكي: يفضّل الرسائل اللي الموظف ما استلمها من قبل إطلاقًا.
+   موظف واحد فقط كل يوم (بالتناوب) — مو كل الفريق.
+   الاختيار: الأقدم استلامًا أولًا، فيدور الدور على الكل بالعدل.
+   الرسالة نفسها: يفضّل وحدة ما استلمها هذا الموظف من قبل إطلاقًا.
    ============================================================ */
 $motivSent = 0;
 try {
@@ -38,19 +39,30 @@ try {
     if ($ms && (int) $ms['motivation_enabled']) {
         $delayMin = max(0, (int) $ms['motivation_delay_minutes']);
 
-        // الموظفون اللي سجّلوا حضور اليوم، ومرّت المدة المطلوبة، وما استلموا رسالة اليوم
-        $stmt = $pdo->prepare("
-            SELECT a.user_id, u.name, u.phone
-            FROM attendance a
-            JOIN users u ON u.id = a.user_id
-            WHERE a.date = ?
-              AND a.check_in IS NOT NULL
-              AND u.phone IS NOT NULL AND u.phone != ''
-              AND ADDTIME(a.check_in, SEC_TO_TIME(? * 60)) <= CURTIME()
-              AND NOT EXISTS (SELECT 1 FROM motivation_log ml WHERE ml.user_id = a.user_id AND ml.sent_date = ?)
-        ");
-        $stmt->execute([$today, $delayMin, $today]);
-        $dueUsers = $stmt->fetchAll();
+        // هل انبعتت رسالة لأي حدا اليوم أصلًا؟ لو آه، خلص — موظف واحد باليوم فقط
+        $sentToday = $pdo->prepare("SELECT COUNT(*) c FROM motivation_log WHERE sent_date = ?");
+        $sentToday->execute([$today]);
+        $alreadySentToday = (int) $sentToday->fetch()['c'] > 0;
+
+        $dueUsers = [];
+        if (!$alreadySentToday) {
+            // نختار موظفًا واحدًا: مؤهل (سجّل حضور ومرّت المدة وعنده رقم)،
+            // والأولوية للأقدم استلامًا لرسالة تحفيزية (واللي ما استلم أبدًا يجي أولًا)
+            $stmt = $pdo->prepare("
+                SELECT a.user_id, u.name, u.phone,
+                       (SELECT MAX(ml.sent_date) FROM motivation_log ml WHERE ml.user_id = a.user_id) AS lastSent
+                FROM attendance a
+                JOIN users u ON u.id = a.user_id
+                WHERE a.date = ?
+                  AND a.check_in IS NOT NULL
+                  AND u.phone IS NOT NULL AND u.phone != ''
+                  AND ADDTIME(a.check_in, SEC_TO_TIME(? * 60)) <= CURTIME()
+                ORDER BY lastSent IS NOT NULL, lastSent ASC, RAND()
+                LIMIT 1
+            ");
+            $stmt->execute([$today, $delayMin]);
+            $dueUsers = $stmt->fetchAll();
+        }
 
         foreach ($dueUsers as $du) {
             // اختر رسالة عشوائية من اللي ما استلمها هذا الموظف من قبل
