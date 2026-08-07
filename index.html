@@ -1387,7 +1387,6 @@ function renderAdmin(){
   const nav = [
     {key:'dashboard', icon:'dashboard', label:'نظرة عامة'},
     {key:'tasks', icon:'tasks', label:'المهام'},
-    {key:'projects', icon:'projects', label:'المشاريع'},
     {key:'clients', icon:'clients', label:'العملاء'},
     {key:'departments', icon:'departments', label:'الأقسام'},
     {key:'employees', icon:'employees', label:'الموظفون'},
@@ -1504,9 +1503,6 @@ function executiveAttentionSection(){
   if(d.tasks.dueToday.length>0) items.push({icon:'📅', color:'var(--warning)', text:`${d.tasks.dueToday.length} مهمة موعدها اليوم`, sub:d.tasks.dueToday.slice(0,3).map(x=>x.title).join('، '), tab:'tasks'});
   if(d.tasks.readyForReview.length>0) items.push({icon:'🟣', color:'#6B3FD1', text:`${d.tasks.readyForReview.length} مهمة بانتظار مراجعتك`, sub:d.tasks.readyForReview.slice(0,3).map(x=>x.title).join('، '), tab:'tasks'});
   if(d.tasks.changesRequested.length>0) items.push({icon:'🟡', color:'var(--warning)', text:`${d.tasks.changesRequested.length} مهمة طُلب تعديلها`, sub:d.tasks.changesRequested.slice(0,3).map(x=>x.title).join('، '), tab:'tasks'});
-  if(d.projects.overdue.length>0) items.push({icon:'📁', color:'var(--danger)', text:`${d.projects.overdue.length} مشروع متأخر التسليم`, sub:d.projects.overdue.slice(0,3).map(x=>x.name).join('، '), tab:'projects'});
-  if(d.projects.dueToday.length>0) items.push({icon:'📁', color:'var(--warning)', text:`${d.projects.dueToday.length} مشروع موعد تسليمه اليوم`, sub:d.projects.dueToday.map(x=>x.name).join('، '), tab:'projects'});
-  if(d.projects.lowProgressNearDeadline.length>0) items.push({icon:'⚠️', color:'var(--warning)', text:`${d.projects.lowProgressNearDeadline.length} مشروع تقدّمه بطيء وموعده قريب`, sub:d.projects.lowProgressNearDeadline.map(x=>`${x.name} (${x.progress}%)`).join('، '), tab:'projects'});
   if(d.leaveRequests.pending.length>0) items.push({icon:'🏖️', color:'var(--warning)', text:`${d.leaveRequests.pending.length} طلب إجازة بانتظار المراجعة`, sub:d.leaveRequests.pending.map(x=>x.userName).join('، '), tab:'attendance'});
   if(d.financial && (d.financial.dueTodayCount>0 || d.financial.overdueCount>0)) {
     items.push({icon:'💰', color:'var(--danger)', text:`مطالبات مالية تحتاج متابعة: ${d.financial.dueTodayCount} اليوم، ${d.financial.overdueCount} متأخرة`, sub:`إجمالي متأخر: ${d.financial.overdueAmount.toLocaleString()}`, tab:'claims'});
@@ -2934,7 +2930,6 @@ function renderEmployee(){
   const nav = [
     {key:'dashboard', icon:'home', label:'الرئيسية'},
     {key:'tasks', icon:'tasks', label:'مهامي'},
-    {key:'projects', icon:'projects', label:'مشاريعي'},
     {key:'attendance', icon:'attendance', label:'دوامي وإجازاتي'},
     {key:'points', icon:'rewards', label:'نقاطي'},
     {key:'report', icon:'reports', label:'تقريري الشهري'},
