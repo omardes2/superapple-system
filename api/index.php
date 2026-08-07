@@ -907,6 +907,13 @@ switch ($action) {
         respond(['project' => $project, 'members' => $members, 'tasks' => $tasks, 'attachments' => $attachments, 'activity' => $activity]);
     }
 
+    /* ============ Phase 2 Batch 1: Workload Management ============ */
+    case 'workloadReport': {
+        // ضغط العمل بيانات إدارية عن كل الفريق — للمدير فقط حسب الصلاحيات الحالية بالنظام
+        requireAdmin($pdo);
+        respond(['workload' => getTeamWorkload($pdo)]);
+    }
+
     /* ============ سير مراجعة المهام (State Machine محكوم) ============ */
     case 'submitForReview': {
         $user = requireLogin($pdo);

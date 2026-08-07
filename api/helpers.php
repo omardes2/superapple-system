@@ -208,3 +208,84 @@ function finalizeTaskAssigneeCompletion($pdo, $task, $userId) {
     }
     return ['onTime' => $onTime, 'points' => $pts];
 }
+
+/* =========================================================
+   Workload Management — Phase 2 Batch 1
+   معادلة الحساب مركزية هون فقط. الواجهة تعرض النتيجة الجاهزة
+   (score + level) ولا تُعيد حسابها إطلاقًا.
+   ========================================================= */
+
+// أوزان معادلة ضغط العمل — عدّلها هون بس، ما تكرّرها بمكان تاني
+const WORKLOAD_WEIGHTS = [
+    'activeTask' => 2,       // كل مهمة نشطة (غير منجزة)
+    'overdueTask' => 5,      // كل مهمة متأخرة (وزن أعلى — الأخطر)
+    'dueToday' => 3,         // كل مهمة موعدها اليوم
+    'dueThisWeek' => 1,      // كل مهمة مستحقة خلال 7 أيام (غير اليوم وغير متأخرة)
+    'changesRequested' => 3, // كل مهمة تحتاج إعادة عمل بعد رفض المراجعة
+    'activeProject' => 2,    // كل مشروع نشط يشارك فيه
+];
+const WORKLOAD_THRESHOLD_MEDIUM = 9;  // score >= 9  → متوسط
+const WORKLOAD_THRESHOLD_HIGH = 21;   // score >= 21 → مرتفع
+
+function computeWorkloadScore($m) {
+    $w = WORKLOAD_WEIGHTS;
+    $score = $m['activeTasks'] * $w['activeTask']
+        + $m['overdueTasks'] * $w['overdueTask']
+        + $m['dueToday'] * $w['dueToday']
+        + $m['dueThisWeek'] * $w['dueThisWeek']
+        + $m['changesRequested'] * $w['changesRequested']
+        + $m['activeProjects'] * $w['activeProject'];
+    $level = $score >= WORKLOAD_THRESHOLD_HIGH ? 'high' : ($score >= WORKLOAD_THRESHOLD_MEDIUM ? 'medium' : 'low');
+    return ['score' => $score, 'level' => $level];
+}
+
+// يرجع Workload لكل الموظفين بضربتين استعلام مجمّعتين فقط (بدون أي حلقة استعلامات لكل موظف)
+function getTeamWorkload($pdo) {
+    // استعلام 1: مقاييس المهام (نشطة/متأخرة/اليوم/الأسبوع/تحتاج تعديل) مجمّعة لكل موظف دفعة وحدة
+    $taskStats = $pdo->query("
+        SELECT
+            u.id AS userId, u.name AS userName, u.department,
+            COUNT(t.id) AS activeTasks,
+            SUM(CASE WHEN t.deadline IS NOT NULL AND t.deadline < CURDATE() THEN 1 ELSE 0 END) AS overdueTasks,
+            SUM(CASE WHEN t.deadline = CURDATE() THEN 1 ELSE 0 END) AS dueToday,
+            SUM(CASE WHEN t.deadline IS NOT NULL AND t.deadline > CURDATE() AND t.deadline <= DATE_ADD(CURDATE(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS dueThisWeek,
+            SUM(CASE WHEN t.status = 'ready_for_review' THEN 1 ELSE 0 END) AS readyForReview,
+            SUM(CASE WHEN t.status = 'changes_requested' THEN 1 ELSE 0 END) AS changesRequested
+        FROM users u
+        LEFT JOIN task_assignees ta ON ta.user_id = u.id AND ta.done = 0
+        LEFT JOIN tasks t ON t.id = ta.task_id AND t.status != 'done'
+        WHERE u.role = 'employee'
+        GROUP BY u.id, u.name, u.department
+        ORDER BY u.name
+    ")->fetchAll();
+
+    // استعلام 2: عدد المشاريع النشطة لكل موظف (منفصل لتفادي ضرب النتائج الديكارتي مع استعلام المهام)
+    $projStats = $pdo->query("
+        SELECT pm.user_id AS userId, COUNT(*) AS activeProjects
+        FROM project_members pm
+        JOIN projects p ON p.id = pm.project_id AND p.status = 'active'
+        GROUP BY pm.user_id
+    ")->fetchAll();
+    $projMap = [];
+    foreach ($projStats as $p) $projMap[$p['userId']] = (int) $p['activeProjects'];
+
+    $result = [];
+    foreach ($taskStats as $row) {
+        $metrics = [
+            'activeTasks' => (int) $row['activeTasks'],
+            'overdueTasks' => (int) $row['overdueTasks'],
+            'dueToday' => (int) $row['dueToday'],
+            'dueThisWeek' => (int) $row['dueThisWeek'],
+            'readyForReview' => (int) $row['readyForReview'],
+            'changesRequested' => (int) $row['changesRequested'],
+            'activeProjects' => $projMap[$row['userId']] ?? 0,
+        ];
+        $scoreInfo = computeWorkloadScore($metrics);
+        $result[] = array_merge(
+            ['userId' => (int) $row['userId'], 'userName' => $row['userName'], 'department' => $row['department']],
+            $metrics,
+            $scoreInfo
+        );
+    }
+    return $result;
+}
