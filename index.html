@@ -317,7 +317,7 @@ let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
   clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
-  adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'active', reportFilter: { preset: 'thisMonth', from: '', to: '' },
+  adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'active', pointsMonth: null, reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
 };
 const DEFAULT_SETTINGS = { workStart:'08:00', graceMinutes:15, pointsOnTime:20, pointsEarlyBonus:10, earlyBonusHours:24, pointsAttendance:5, penaltyLate:5, penaltyAbsent:10, whatsappPhoneId:'', whatsappToken:'', whatsappTemplate:'hello_world' };
@@ -390,8 +390,35 @@ function timeAgo(d){
 }
 function showToast(msg){ state.toast = msg; render(); setTimeout(()=>{ state.toast=null; render(); }, 2600); }
 
-function userPoints(userId){
-  return state.points.filter(p=>p.userId===userId).reduce((s,p)=>s+p.points,0);
+/* ---------------- نظام النقاط الشهري ----------------
+   النقاط تُحسب لكل شهر لوحده (تبدأ من صفر أول كل شهر).
+   state.pointsMonth بصيغة 'YYYY-MM'، وافتراضيًا الشهر الحالي.
+   السجل الكامل محفوظ بقاعدة البيانات دايمًا (أرشيف)، إحنا بس بنفلتر العرض. */
+function currentMonthKey(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function pointsInMonth(monthKey){
+  return (state.points||[]).filter(p => (p.date||'').slice(0,7) === monthKey);
+}
+function userPoints(userId, monthKey){
+  const m = monthKey || state.pointsMonth || currentMonthKey();
+  return pointsInMonth(m).filter(p=>p.userId===userId).reduce((s,p)=>s+p.points,0);
+}
+// إجمالي نقاط الموظف عبر كل الأشهر (للأرشيف/الرصيد التراكمي)
+function userPointsAllTime(userId){
+  return (state.points||[]).filter(p=>p.userId===userId).reduce((s,p)=>s+p.points,0);
+}
+// كل الأشهر يلي فيها نقاط فعليًا، مرتبة من الأحدث (لقائمة الأرشيف)
+function availablePointMonths(){
+  const set = new Set((state.points||[]).map(p=>(p.date||'').slice(0,7)).filter(Boolean));
+  set.add(currentMonthKey());
+  return [...set].sort().reverse();
+}
+function monthLabel(key){
+  const [y,m] = key.split('-');
+  const d = new Date(parseInt(y), parseInt(m)-1, 1);
+  return d.toLocaleDateString('ar-EG', {month:'long', year:'numeric'});
 }
 
 /* ---------------- AUTH ---------------- */
@@ -1125,8 +1152,9 @@ function reportRangeFor(filter){
   }
   return { from: filter.from || todayStr(), to: filter.to || todayStr() };
 }
-function leaderboard(){
-  return state.users.filter(u=>u.role==='employee').map(u=>({u, pts: userPoints(u.id)})).sort((a,b)=>b.pts-a.pts);
+function leaderboard(monthKey){
+  const m = monthKey || state.pointsMonth || currentMonthKey();
+  return state.users.filter(u=>u.role==='employee').map(u=>({u, pts: userPoints(u.id, m)})).sort((a,b)=>b.pts-a.pts);
 }
 
 function monthlyCompletionSeries(){
@@ -2288,19 +2316,44 @@ function adminAttendance(){
   </div>`;
 }
 
+// شريط اختيار شهر النقاط (أرشيف) — يُستخدم بصفحة المدير وصفحة الموظف معًا
+function pointsMonthFilter(){
+  const months = availablePointMonths();
+  const cur = state.pointsMonth || currentMonthKey();
+  const isCurrent = cur === currentMonthKey();
+  return `
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:12.5px;font-weight:700;">📅 دورة النقاط:</span>
+      <select id="pointsMonthSelect" style="max-width:220px;">
+        ${months.map(m=>`<option value="${m}" ${m===cur?'selected':''}>${monthLabel(m)}${m===currentMonthKey()?' (الحالي)':''}</option>`).join('')}
+      </select>
+      ${!isCurrent?`<button class="btn btn-ghost btn-sm" id="backToCurrentMonth">→ رجوع للشهر الحالي</button>`:''}
+      <span style="font-size:11.5px;color:var(--text-faint);margin-right:auto;">النقاط تُحسب من أول الشهر حتى نهايته، وتبدأ من صفر كل شهر جديد</span>
+    </div>
+  </div>`;
+}
+
 function adminRewards(){
   const s = state.settings;
+  const cur = state.pointsMonth || currentMonthKey();
+  const monthPoints = pointsInMonth(cur);
   return `
+  ${pointsMonthFilter()}
   <div class="grid grid-2">
     <div class="card">
-      <div class="section-title">🏆 لوحة الترتيب</div>
-      ${leaderboard().map((t,i)=>`
+      <div class="section-title">🏆 لوحة الترتيب <span style="font-size:11px;color:var(--text-faint);font-weight:600;">${monthLabel(cur)}</span></div>
+      ${leaderboard(cur).map((t,i)=>`
         <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
           <div class="rank-pill">${i+1}</div>
           <div class="avatar" style="width:32px;height:32px;font-size:13px;">${t.u.name[0]}</div>
           <div style="flex:1;"><div style="font-weight:700;font-size:13.5px;">${t.u.name}</div><div style="font-size:11.5px;color:var(--text-faint)">${t.u.department}</div></div>
-          <div style="font-weight:800;color:var(--primary);font-size:15px;">${t.pts} نقطة</div>
+          <div style="text-align:left;">
+            <div style="font-weight:800;color:var(--primary);font-size:15px;">${t.pts} نقطة</div>
+            <div style="font-size:10px;color:var(--text-faint);">الإجمالي التراكمي: ${userPointsAllTime(t.u.id)}</div>
+          </div>
         </div>`).join('') || `<div class="empty">لا يوجد موظفون بعد</div>`}
+      ${monthPoints.length===0?`<div class="empty" style="margin-top:10px;">لا توجد حركات نقاط بهذا الشهر</div>`:''}
     </div>
     <div class="card">
       <div class="section-title">⚙️ قواعد النقاط</div>
@@ -2315,6 +2368,24 @@ function adminRewards(){
         <button class="btn btn-primary" type="submit" style="width:100%;">حفظ القواعد</button>
       </form>
     </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="section-title">📜 سجل حركات النقاط — ${monthLabel(cur)} <span style="font-size:11px;color:var(--text-faint);font-weight:600;">${monthPoints.length} حركة</span></div>
+    ${monthPoints.length===0?`<div class="empty">لا توجد حركات نقاط بهذا الشهر</div>`:`
+    <div style="max-height:420px;overflow-y:auto;">
+    <table><thead><tr><th>الموظف</th><th>السبب</th><th>النقاط</th><th>التاريخ</th></tr></thead><tbody>
+    ${[...monthPoints].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(p=>{
+      const u = state.users.find(u=>u.id===p.userId);
+      return `<tr>
+        <td style="font-weight:700;">${u?u.name:'—'}</td>
+        <td style="font-size:12px;color:var(--text-muted);">${p.reason||'—'}</td>
+        <td style="font-weight:800;color:${p.points>=0?'var(--success)':'var(--danger)'};">${p.points>0?'+':''}${p.points}</td>
+        <td style="font-size:11px;color:var(--text-faint);">${fmtDateTime(p.date)}</td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>
+    </div>`}
   </div>`;
 }
 
@@ -3029,25 +3100,37 @@ function leaveModal(){
 }
 
 function empPoints(){
-  const rank = leaderboard();
+  const cur = state.pointsMonth || currentMonthKey();
+  const rank = leaderboard(cur);
   const myRank = rank.findIndex(r=>r.u.id===state.currentUser.id)+1;
-  const myHistory = state.points.filter(p=>p.userId===state.currentUser.id).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const myHistory = pointsInMonth(cur).filter(p=>p.userId===state.currentUser.id).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const isCurrent = cur === currentMonthKey();
   return `
-  <div class="grid grid-2">
+  ${pointsMonthFilter()}
+  <div class="grid grid-3">
     <div class="card" style="text-align:center;">
-      <div class="stat-label">ترتيبك في الفريق</div>
+      <div class="stat-label">ترتيبك ${isCurrent?'هذا الشهر':'بذلك الشهر'}</div>
       <div class="stat-value" style="font-size:36px;color:var(--accent);">#${myRank||'-'}</div>
       <div class="stat-sub">من أصل ${rank.length} موظف</div>
     </div>
     <div class="card" style="text-align:center;">
-      <div class="stat-label">إجمالي النقاط</div>
-      <div class="stat-value" style="font-size:36px;color:var(--primary);">${userPoints(state.currentUser.id)}</div>
+      <div class="stat-label">نقاط ${monthLabel(cur)}</div>
+      <div class="stat-value" style="font-size:36px;color:var(--primary);">${userPoints(state.currentUser.id, cur)}</div>
+      <div class="stat-sub">تبدأ من صفر أول كل شهر</div>
+    </div>
+    <div class="card" style="text-align:center;">
+      <div class="stat-label">رصيدك التراكمي</div>
+      <div class="stat-value" style="font-size:36px;color:var(--text-muted);">${userPointsAllTime(state.currentUser.id)}</div>
+      <div class="stat-sub">منذ انضمامك للفريق</div>
     </div>
   </div>
   <div class="card" style="margin-top:16px;">
-    <div class="section-title">سجل النقاط</div>
-    ${myHistory.length===0?`<div class="empty">لا يوجد سجل بعد</div>`:myHistory.map(p=>`
-      <div class="assignee-row"><span>${p.reason}</span><b style="color:${p.points>=0?'var(--success)':'var(--danger)'}">${p.points>0?'+':''}${p.points}</b></div>
+    <div class="section-title">سجل نقاط ${monthLabel(cur)} <span style="font-size:11px;color:var(--text-faint);font-weight:600;">${myHistory.length} حركة</span></div>
+    ${myHistory.length===0?`<div class="empty">لا توجد حركات نقاط بهذا الشهر</div>`:myHistory.map(p=>`
+      <div class="assignee-row">
+        <span>${p.reason}<div style="font-size:10.5px;color:var(--text-faint);">${fmtDateTime(p.date)}</div></span>
+        <b style="color:${p.points>=0?'var(--success)':'var(--danger)'}">${p.points>0?'+':''}${p.points}</b>
+      </div>
     `).join('')}
   </div>`;
 }
@@ -3166,6 +3249,12 @@ function attachAppEvents(){
   });
   document.querySelectorAll('[data-task-filter]').forEach(el=>{
     el.addEventListener('click', ()=>{ state.taskFilterTab = el.getAttribute('data-task-filter'); render(); });
+  });
+  document.getElementById('pointsMonthSelect')?.addEventListener('change', (e)=>{
+    state.pointsMonth = e.target.value; render();
+  });
+  document.getElementById('backToCurrentMonth')?.addEventListener('click', ()=>{
+    state.pointsMonth = currentMonthKey(); render();
   });
   document.querySelectorAll('[data-report-preset]').forEach(el=>{
     el.addEventListener('click', ()=>{
