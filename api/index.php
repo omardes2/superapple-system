@@ -67,6 +67,10 @@ function doCheckIn($pdo, $user, $lat, $lng) {
     $stmt->execute([$user['id'], $today]);
     if ($stmt->fetch()) return ['error' => 'تم تسجيل حضورك اليوم بالفعل'];
 
+    // التحقق من موقع الشركة — يتم بالسيرفر حصرًا، فما فيه طريقة يتحايل عليه من المتصفح
+    $geo = checkGeofence($pdo, $lat, $lng);
+    if (!$geo['allowed']) return ['error' => $geo['error']];
+
     $time = date('H:i:s');
     $s = $pdo->query("SELECT grace_minutes, points_attendance, penalty_late FROM settings WHERE id = 1")->fetch();
     $workStart = $user['workStart'] ?: '08:00:00';
@@ -140,7 +144,9 @@ switch ($action) {
             points_on_time AS pointsOnTime, points_early_bonus AS pointsEarlyBonus, early_bonus_hours AS earlyBonusHours,
             points_attendance AS pointsAttendance, penalty_late AS penaltyLate, penalty_absent AS penaltyAbsent,
             whatsapp_phone_id AS whatsappPhoneId, whatsapp_token AS whatsappToken, whatsapp_template AS whatsappTemplate,
-            whatsapp_verify_token AS whatsappVerifyToken, whatsapp_app_secret AS whatsappAppSecret
+            whatsapp_verify_token AS whatsappVerifyToken, whatsapp_app_secret AS whatsappAppSecret,
+            geofence_enabled AS geofenceEnabled, office_latitude AS officeLatitude,
+            office_longitude AS officeLongitude, geofence_radius AS geofenceRadius
             FROM settings WHERE id = 1")->fetch();
 
         $payload = ['hasUsers' => $hasUsers, 'currentUser' => $currentUser, 'settings' => $settingsRow ?: null];
@@ -578,6 +584,24 @@ switch ($action) {
     }
 
     /* ============ إعدادات النقاط ============ */
+    case 'updateGeofence': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $enabled = !empty($b['enabled']) ? 1 : 0;
+        $lat = ($b['latitude'] === '' || $b['latitude'] === null) ? null : (float) $b['latitude'];
+        $lng = ($b['longitude'] === '' || $b['longitude'] === null) ? null : (float) $b['longitude'];
+        $radius = max(20, min(5000, (int) ($b['radius'] ?? 200))); // حد أدنى معقول وحد أعلى للحماية من خطأ إدخال
+
+        // منع تفعيل القيد بدون تحديد موقع — وإلا رح يمنع كل الموظفين من التسجيل
+        if ($enabled && ($lat === null || $lng === null)) {
+            respond(['error' => 'لازم تحدد موقع الشركة أولًا قبل تفعيل القيد'], 400);
+        }
+
+        $pdo->prepare("UPDATE settings SET geofence_enabled=?, office_latitude=?, office_longitude=?, geofence_radius=? WHERE id = 1")
+            ->execute([$enabled, $lat, $lng, $radius]);
+        respond(['success' => true]);
+    }
+
     case 'updateSettings': {
         requireAdmin($pdo);
         $b = bodyInput();

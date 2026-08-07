@@ -291,7 +291,11 @@ CREATE TABLE IF NOT EXISTS settings (
   whatsapp_token TEXT DEFAULT NULL,
   whatsapp_template VARCHAR(100) DEFAULT 'hello_world',
   whatsapp_verify_token VARCHAR(100) DEFAULT NULL,
-  whatsapp_app_secret VARCHAR(150) DEFAULT NULL
+  whatsapp_app_secret VARCHAR(150) DEFAULT NULL,
+  geofence_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  office_latitude DECIMAL(10,7) DEFAULT NULL,
+  office_longitude DECIMAL(10,7) DEFAULT NULL,
+  geofence_radius INT NOT NULL DEFAULT 200
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO settings (id) VALUES (1)

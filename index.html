@@ -714,7 +714,7 @@ function getGeoCoords(){
     navigator.geolocation.getCurrentPosition(
       pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => resolve(null),
-      { timeout: 6000 }
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
   });
 }
@@ -2260,8 +2260,35 @@ function adminAttendance(){
   const reviewed = leaves.filter(l=>l.status!=='pending').slice(0,10);
   const leaveStatusMap = {pending:['قيد المراجعة','badge-warning'], approved:['موافَق عليها','badge-success'], rejected:['مرفوضة','badge-danger']};
   const today = todayStr();
+  const g = state.settings || {};
+  const geoOn = !!Number(g.geofenceEnabled);
 
   return `
+  <div class="card" style="margin-bottom:16px;${geoOn?'border-color:var(--success);':''}">
+    <div class="section-title">📍 تقييد تسجيل الدوام بمقر الشركة
+      <span class="badge ${geoOn?'badge-success':'badge-muted'}">${geoOn?'مفعّل':'معطّل'}</span>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);line-height:1.8;margin-bottom:12px;">
+      لما تفعّله، ما رح يقدر أي موظف يسجّل حضوره إلا لو كان فعليًا داخل النطاق المحدد حول مقر الشركة.
+      التحقق بيتم على السيرفر، فما فيه طريقة يتحايل عليه من المتصفح.
+    </p>
+    <form id="geofenceForm">
+      <div class="form-row">
+        <div class="field"><label>خط العرض (Latitude)</label><input name="latitude" id="geoLat" value="${g.officeLatitude ?? ''}" placeholder="32.2211" dir="ltr"/></div>
+        <div class="field"><label>خط الطول (Longitude)</label><input name="longitude" id="geoLng" value="${g.officeLongitude ?? ''}" placeholder="35.2544" dir="ltr"/></div>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" id="useMyLocationBtn" style="margin-bottom:12px;">📍 استخدم موقعي الحالي (كن داخل الشركة وقت الضغط)</button>
+      <div class="field"><label>نطاق السماح بالمتر (يُنصح بـ 150–300 متر حسب حجم المبنى)</label>
+        <input name="radius" type="number" min="20" max="5000" value="${g.geofenceRadius ?? 200}"/>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:12px 0;">
+        <input type="checkbox" name="enabled" ${geoOn?'checked':''} style="width:17px;height:17px;"/>
+        تفعيل القيد (امنع التسجيل من خارج النطاق)
+      </label>
+      <button type="submit" class="btn btn-primary" style="width:100%;">حفظ إعدادات النطاق</button>
+    </form>
+  </div>
+
   <div class="card" style="margin-bottom:16px;">
     <div class="section-title">طلبات الإجازة ${pending.length>0?`<span class="badge badge-warning">${pending.length} بانتظار المراجعة</span>`:''}</div>
     ${leaves.length===0?`<div class="empty">لا توجد طلبات إجازة بعد</div>`:`
@@ -3507,6 +3534,32 @@ function attachAppEvents(){
     render();
   });
 
+  document.getElementById('useMyLocationBtn')?.addEventListener('click', ()=>{
+    if(!navigator.geolocation){ showToast('متصفحك ما بيدعم تحديد الموقع'); return; }
+    showToast('جارِ تحديد موقعك...');
+    navigator.geolocation.getCurrentPosition(
+      (pos)=>{
+        document.getElementById('geoLat').value = pos.coords.latitude.toFixed(7);
+        document.getElementById('geoLng').value = pos.coords.longitude.toFixed(7);
+        showToast(`تم تحديد موقعك (دقة ±${Math.round(pos.coords.accuracy)}م)`);
+      },
+      ()=> showToast('تعذر تحديد موقعك — تأكد من السماح للموقع بالوصول لخدمة الموقع'),
+      { enableHighAccuracy:true, timeout:10000 }
+    );
+  });
+  document.getElementById('geofenceForm')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const f = e.target;
+    const res = await apiPost('updateGeofence', {
+      enabled: f.enabled.checked,
+      latitude: f.latitude.value.trim(),
+      longitude: f.longitude.value.trim(),
+      radius: f.radius.value
+    });
+    if(res.error){ showToast(res.error); return; }
+    await refresh();
+    showToast(f.enabled.checked ? 'تم تفعيل تقييد الدوام بمقر الشركة ✅' : 'تم حفظ الإعدادات (القيد معطّل حاليًا)');
+  });
   document.getElementById('settingsForm')?.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const f = e.target;

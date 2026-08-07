@@ -430,3 +430,58 @@ function getExecutiveDashboard($pdo, $user) {
     return $result;
 }
 
+
+/* =========================================================
+   تقييد تسجيل الدوام بموقع الشركة (Geofencing)
+   التحقق كله هون بالسيرفر — الواجهة ما بتقرر شي، بس بتبعت الإحداثيات.
+   ========================================================= */
+
+// المسافة بالأمتار بين نقطتين على سطح الأرض (معادلة Haversine)
+function distanceInMeters($lat1, $lng1, $lat2, $lng2) {
+    $earthRadius = 6371000; // نصف قطر الأرض بالمتر
+    $dLat = deg2rad($lat2 - $lat1);
+    $dLng = deg2rad($lng2 - $lng1);
+    $a = sin($dLat / 2) * sin($dLat / 2)
+       + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) * sin($dLng / 2);
+    return $earthRadius * (2 * atan2(sqrt($a), sqrt(1 - $a)));
+}
+
+/**
+ * يتحقق هل الموظف داخل نطاق الشركة المسموح.
+ * يرجع: ['allowed' => bool, 'error' => string|null, 'distance' => int|null]
+ */
+function checkGeofence($pdo, $lat, $lng) {
+    $s = $pdo->query("SELECT geofence_enabled, office_latitude, office_longitude, geofence_radius FROM settings WHERE id = 1")->fetch();
+
+    // القيد غير مفعّل، أو المدير ما حدّد موقع الشركة بعد → نسمح عادي (سلوك النظام القديم)
+    if (!$s || !(int) $s['geofence_enabled']) return ['allowed' => true, 'error' => null, 'distance' => null];
+    if ($s['office_latitude'] === null || $s['office_longitude'] === null) {
+        return ['allowed' => true, 'error' => null, 'distance' => null];
+    }
+
+    // القيد مفعّل لكن الجهاز ما بعث إحداثيات (رفض إذن الموقع أو GPS مطفي)
+    if ($lat === null || $lng === null || $lat === '' || $lng === '') {
+        return [
+            'allowed' => false,
+            'error' => 'لازم تفعّل خدمة الموقع (GPS) وتسمح للموقع بالوصول إليها عشان تقدر تسجّل حضورك من مقر الشركة.',
+            'distance' => null,
+        ];
+    }
+
+    $distance = distanceInMeters(
+        (float) $lat, (float) $lng,
+        (float) $s['office_latitude'], (float) $s['office_longitude']
+    );
+    $radius = (int) $s['geofence_radius'];
+
+    if ($distance > $radius) {
+        $km = $distance >= 1000 ? round($distance / 1000, 1) . ' كم' : round($distance) . ' متر';
+        return [
+            'allowed' => false,
+            'error' => "ما تقدر تسجّل من هون — أنت على بُعد {$km} تقريبًا عن مقر الشركة. التسجيل متاح فقط من داخل مقر العمل.",
+            'distance' => (int) round($distance),
+        ];
+    }
+
+    return ['allowed' => true, 'error' => null, 'distance' => (int) round($distance)];
+}
