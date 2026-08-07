@@ -72,12 +72,24 @@ function sendWhatsAppCloud($pdo, $phone, $bodyText) {
 }
 
 // يسجّل إشعارًا داخل النظام + يبعت رسالة واتساب حقيقية بنفس الوقت
-function pushNotification($pdo, $userId, $message, $type) {
-    $pdo->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?, ?, ?)")->execute([$userId, $message, $type]);
-    $stmt = $pdo->prepare("SELECT phone FROM users WHERE id = ?");
-    $stmt->execute([$userId]);
-    $u = $stmt->fetch();
-    if ($u && $u['phone']) sendWhatsAppCloud($pdo, $u['phone'], $message);
+function pushNotification($pdo, $userId, $message, $type, $opts = []) {
+    // $opts اختياري بالكامل — أي استدعاء قديم بأربع بارامترات يشتغل بالضبط زي ما كان (صفر كسر توافق)
+    $title = $opts['title'] ?? null;
+    $entityType = $opts['entityType'] ?? null;
+    $entityId = $opts['entityId'] ?? null;
+    // افتراضيًا نُبقي إرسال واتساب مفعّل (نفس السلوك القديم)، إلا لو طُلب تعطيله صراحة
+    // (نستخدم هذا لأنواع الإشعارات الجديدة كثيرة التكرار زي المنشن والتعليقات لتفادي إزعاج واتساب)
+    $sendWhatsapp = $opts['sendWhatsapp'] ?? true;
+
+    $pdo->prepare("INSERT INTO notifications (user_id, message, title, type, entity_type, entity_id) VALUES (?, ?, ?, ?, ?, ?)")
+        ->execute([$userId, $message, $title, $type, $entityType, $entityId]);
+
+    if ($sendWhatsapp) {
+        $stmt = $pdo->prepare("SELECT phone FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $u = $stmt->fetch();
+        if ($u && $u['phone']) sendWhatsAppCloud($pdo, $u['phone'], $message);
+    }
 }
 
 /* =========================================================
@@ -289,3 +301,38 @@ function getTeamWorkload($pdo) {
     }
     return $result;
 }
+
+/* =========================================================
+   @Mentions — Phase 2 Batch 2
+   ========================================================= */
+
+// من يجوز ذكره بتعليقات مهمة معيّنة: المسندين لها + منشئها + أعضاء مشروعها ومديره (مو كل موظفي الشركة)
+function getMentionableUsers($pdo, $taskId) {
+    $stmt = $pdo->prepare("
+        SELECT DISTINCT u.id, u.name FROM users u WHERE u.id IN (
+            SELECT ta.user_id FROM task_assignees ta WHERE ta.task_id = ?
+            UNION SELECT t.created_by FROM tasks t WHERE t.id = ? AND t.created_by IS NOT NULL
+            UNION SELECT pm.user_id FROM project_members pm JOIN tasks t2 ON t2.project_id = pm.project_id WHERE t2.id = ?
+            UNION SELECT p.manager_id FROM projects p JOIN tasks t3 ON t3.project_id = p.id WHERE t3.id = ? AND p.manager_id IS NOT NULL
+        )
+        ORDER BY u.name
+    ");
+    $stmt->execute([$taskId, $taskId, $taskId, $taskId]);
+    return $stmt->fetchAll();
+}
+
+// يستخرج user_ids المذكورين فعليًا بنص التعليق (مطابقة @الاسم_الكامل، الأسماء الأطول أولاً لتفادي تطابق جزئي خاطئ)
+function extractMentionedUserIds($message, $mentionableUsers) {
+    $sorted = $mentionableUsers;
+    usort($sorted, fn($a, $b) => mb_strlen($b['name']) - mb_strlen($a['name']));
+    $found = [];
+    $remaining = $message;
+    foreach ($sorted as $u) {
+        if (mb_strpos($remaining, '@' . $u['name']) !== false) {
+            $found[] = (int) $u['id'];
+            $remaining = str_replace('@' . $u['name'], '', $remaining); // تفادي إعادة مطابقة جزء من اسم أطول اتطابق أصلًا
+        }
+    }
+    return array_unique($found);
+}
+

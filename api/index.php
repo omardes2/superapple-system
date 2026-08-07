@@ -197,10 +197,10 @@ switch ($action) {
             $payload['points'] = $pdo->query("SELECT id, user_id AS userId, points, reason, created_at AS date FROM points")->fetchAll();
 
             if ($isAdmin) {
-                $payload['notifications'] = $pdo->query("SELECT id, user_id AS userId, message, type, created_at AS createdAt FROM notifications ORDER BY created_at DESC")->fetchAll();
+                $payload['notifications'] = $pdo->query("SELECT id, user_id AS userId, message, title, type, entity_type AS entityType, entity_id AS entityId, is_read AS isRead, created_at AS createdAt FROM notifications ORDER BY created_at DESC LIMIT 300")->fetchAll();
                 $payload['leaveRequests'] = $pdo->query("SELECT id, user_id AS userId, start_date AS startDate, end_date AS endDate, reason, status, created_at AS createdAt FROM leave_requests ORDER BY created_at DESC")->fetchAll();
             } else {
-                $stmt = $pdo->prepare("SELECT id, user_id AS userId, message, type, created_at AS createdAt FROM notifications WHERE user_id = ? ORDER BY created_at DESC");
+                $stmt = $pdo->prepare("SELECT id, user_id AS userId, message, title, type, entity_type AS entityType, entity_id AS entityId, is_read AS isRead, created_at AS createdAt FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 150");
                 $stmt->execute([$currentUser['id']]);
                 $payload['notifications'] = $stmt->fetchAll();
                 $stmt = $pdo->prepare("SELECT id, user_id AS userId, start_date AS startDate, end_date AS endDate, reason, status, created_at AS createdAt FROM leave_requests WHERE user_id = ? ORDER BY created_at DESC");
@@ -338,7 +338,7 @@ switch ($action) {
         $deadlineTxt = $b['deadline'] ? date('d/m', strtotime($b['deadline'])) : 'غير محدد';
         foreach ($b['assignees'] as $uid) {
             $insA->execute([$taskId, $uid]);
-            pushNotification($pdo, $uid, "مهمة جديدة: \"" . trim($b['title']) . "\" — الموعد النهائي {$deadlineTxt}.", 'task');
+            pushNotification($pdo, $uid, "مهمة جديدة: \"" . trim($b['title']) . "\" — الموعد النهائي {$deadlineTxt}.", 'task', ['title' => 'مهمة جديدة', 'entityType' => 'task', 'entityId' => $taskId]);
         }
         respond(['success' => true]);
     }
@@ -359,7 +359,7 @@ switch ($action) {
             $stmt = $pdo->prepare("SELECT title, created_by FROM tasks WHERE id = ?");
             $stmt->execute([$taskId]);
             $task = $stmt->fetch();
-            if ($task['created_by']) pushNotification($pdo, $task['created_by'], "{$user['name']} استلم المهمة \"{$task['title']}\" وبدأ العمل عليها.", 'task');
+            if ($task['created_by']) pushNotification($pdo, $task['created_by'], "{$user['name']} استلم المهمة \"{$task['title']}\" وبدأ العمل عليها.", 'task', ['title' => 'استلام مهمة', 'entityType' => 'task', 'entityId' => $taskId]);
         }
         respond(['success' => true]);
     }
@@ -388,9 +388,9 @@ switch ($action) {
 
         $result = finalizeTaskAssigneeCompletion($pdo, $task, $userId);
         if ($result['onTime']) {
-            pushNotification($pdo, $userId, "أحسنت! أنجزت \"{$task['title']}\" وحصلت على {$result['points']} نقطة.", 'points');
+            pushNotification($pdo, $userId, "أحسنت! أنجزت \"{$task['title']}\" وحصلت على {$result['points']} نقطة.", 'points', ['title' => 'إنجاز مهمة', 'entityType' => 'task', 'entityId' => $taskId]);
         } else {
-            pushNotification($pdo, $userId, "أنجزت \"{$task['title']}\" بعد الموعد النهائي.", 'task');
+            pushNotification($pdo, $userId, "أنجزت \"{$task['title']}\" بعد الموعد النهائي.", 'task', ['title' => 'إنجاز مهمة', 'entityType' => 'task', 'entityId' => $taskId]);
         }
 
         // إغلاق المهمة تلقائيًا لو كل المسندين خلصوا — فقط للمهام التي لا تحتاج مراجعة (سلوك قديم بدون تغيير)
@@ -431,7 +431,7 @@ switch ($action) {
         $stmt->execute([$taskId]);
         $task = $stmt->fetch();
         $deadlineTxt = $task['deadline'] ? date('d/m', strtotime($task['deadline'])) : 'غير محدد';
-        pushNotification($pdo, $newUserId, "تمت إضافتك لمهمة: \"{$task['title']}\" — الموعد النهائي {$deadlineTxt}.", 'task');
+        pushNotification($pdo, $newUserId, "تمت إضافتك لمهمة: \"{$task['title']}\" — الموعد النهائي {$deadlineTxt}.", 'task', ['title' => 'أُضفت لمهمة', 'entityType' => 'task', 'entityId' => $taskId]);
         respond(['success' => true]);
     }
 
@@ -451,19 +451,42 @@ switch ($action) {
             if (!$stmt->fetch()) respond(['error' => 'غير مسموح'], 403);
         }
         $pdo->prepare("INSERT INTO task_comments (task_id, user_id, message) VALUES (?, ?, ?)")->execute([$taskId, $user['id'], $message]);
+        $commentId = $pdo->lastInsertId();
 
         $stmt = $pdo->prepare("SELECT title, created_by FROM tasks WHERE id = ?");
         $stmt->execute([$taskId]);
         $task = $stmt->fetch();
+
+        // استخراج المنشن: فقط من ضمن الأشخاص المسموح ذكرهم بهذه المهمة تحديدًا (Server-side enforced)
+        $mentionable = getMentionableUsers($pdo, $taskId);
+        $mentionedIds = extractMentionedUserIds($message, $mentionable);
+        $mentionedIds = array_filter($mentionedIds, fn($uid) => $uid != $user['id']); // ما تذكر نفسك
+        foreach ($mentionedIds as $mid) {
+            try {
+                $pdo->prepare("INSERT INTO comment_mentions (comment_id, user_id) VALUES (?, ?)")->execute([$commentId, $mid]);
+            } catch (\Throwable $e) { /* منشن مكرر بنفس التعليق — تجاهل بأمان */ }
+            pushNotification($pdo, $mid, "{$user['name']} ذكرك بتعليق على مهمة \"{$task['title']}\"", 'mention',
+                ['title' => 'تم ذكرك', 'entityType' => 'task', 'entityId' => $taskId, 'sendWhatsapp' => false]);
+        }
+
+        // باقي المشاركين بالمهمة (غير المُذكورين تحديدًا، تفاديًا لإشعار مزدوج لنفس الشخص عن نفس التعليق)
         $notifyIds = [];
         if ($task['created_by'] && $task['created_by'] != $user['id']) $notifyIds[] = $task['created_by'];
         $stmt = $pdo->prepare("SELECT user_id FROM task_assignees WHERE task_id = ?");
         $stmt->execute([$taskId]);
         foreach ($stmt->fetchAll() as $r) if ($r['user_id'] != $user['id']) $notifyIds[] = $r['user_id'];
         foreach (array_unique($notifyIds) as $nid) {
-            pushNotification($pdo, $nid, "{$user['name']} علّق على مهمة \"{$task['title']}\": " . mb_substr($message, 0, 80), 'task');
+            if (in_array($nid, $mentionedIds)) continue; // تفادي إشعار مزدوج
+            pushNotification($pdo, $nid, "{$user['name']} علّق على مهمة \"{$task['title']}\": " . mb_substr($message, 0, 80), 'task',
+                ['title' => 'تعليق جديد', 'entityType' => 'task', 'entityId' => $taskId, 'sendWhatsapp' => false]);
         }
         respond(['success' => true]);
+    }
+
+    case 'mentionableUsers': {
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        respond(['users' => getMentionableUsers($pdo, $b['taskId'] ?? 0)]);
     }
 
     case 'taskComments': {
@@ -515,9 +538,10 @@ switch ($action) {
         if (strtotime($b['endDate']) < strtotime($b['startDate'])) respond(['error' => 'تاريخ النهاية يجب أن يكون بعد تاريخ البداية'], 400);
         $pdo->prepare("INSERT INTO leave_requests (user_id, start_date, end_date, reason) VALUES (?, ?, ?, ?)")
             ->execute([$user['id'], $b['startDate'], $b['endDate'], trim($b['reason'] ?? '')]);
+        $newLeaveId = $pdo->lastInsertId();
         $admins = $pdo->query("SELECT id FROM users WHERE role = 'admin'")->fetchAll();
         foreach ($admins as $a) {
-            pushNotification($pdo, $a['id'], "{$user['name']} طلب إجازة من {$b['startDate']} إلى {$b['endDate']}.", 'leave');
+            pushNotification($pdo, $a['id'], "{$user['name']} طلب إجازة من {$b['startDate']} إلى {$b['endDate']}.", 'leave', ['title' => 'طلب إجازة جديد', 'entityType' => 'leave', 'entityId' => $newLeaveId, 'sendWhatsapp' => false]);
         }
         respond(['success' => true]);
     }
@@ -534,7 +558,7 @@ switch ($action) {
         $msg = $status === 'approved'
             ? "تمت الموافقة على طلب إجازتك من {$lr['start_date']} إلى {$lr['end_date']} ✅"
             : "تم رفض طلب إجازتك من {$lr['start_date']} إلى {$lr['end_date']}.";
-        pushNotification($pdo, $lr['user_id'], $msg, 'leave');
+        pushNotification($pdo, $lr['user_id'], $msg, 'leave', ['title' => $status === 'approved' ? 'تمت الموافقة على إجازتك' : 'تم رفض طلب إجازتك', 'entityType' => 'leave', 'entityId' => (int) $b['id']]);
         respond(['success' => true]);
     }
 
@@ -819,6 +843,16 @@ switch ($action) {
 
         if ($newStatus !== $old['status']) {
             logProjectActivity($pdo, $projectId, $user['id'], 'status_changed', "الحالة تغيّرت من {$old['status']} إلى {$newStatus}");
+            $statusLabels = ['new' => 'جديد', 'active' => 'قيد التنفيذ', 'on_hold' => 'متوقف مؤقتًا', 'completed' => 'مكتمل', 'cancelled' => 'ملغي'];
+            $members = $pdo->prepare("SELECT user_id FROM project_members WHERE project_id = ?");
+            $members->execute([$projectId]);
+            foreach ($members->fetchAll() as $m) {
+                if ($m['user_id'] == $user['id']) continue;
+                pushNotification($pdo, $m['user_id'],
+                    "تغيّرت حالة مشروع \"{$old['name']}\" إلى " . ($statusLabels[$newStatus] ?? $newStatus),
+                    'project', ['title' => 'تغيير بحالة المشروع', 'entityType' => 'project', 'entityId' => $projectId, 'sendWhatsapp' => false]
+                );
+            }
         } else {
             logProjectActivity($pdo, $projectId, $user['id'], 'updated', 'تم تحديث بيانات المشروع');
         }
@@ -861,7 +895,7 @@ switch ($action) {
         $stmt = $pdo->prepare("SELECT name FROM projects WHERE id = ?");
         $stmt->execute([$projectId]);
         $p = $stmt->fetch();
-        pushNotification($pdo, $memberId, "تمت إضافتك لفريق مشروع \"" . ($p['name'] ?? '') . "\"", 'task');
+        pushNotification($pdo, $memberId, "تمت إضافتك لفريق مشروع \"" . ($p['name'] ?? '') . "\"", 'project', ['title' => 'أُضفت لمشروع', 'entityType' => 'project', 'entityId' => $projectId]);
         respond(['success' => true]);
     }
 
@@ -873,6 +907,12 @@ switch ($action) {
         if (!canManageProject($pdo, $user, $projectId)) respond(['error' => 'غير مسموح'], 403);
         $pdo->prepare("DELETE FROM project_members WHERE project_id = ? AND user_id = ?")->execute([$projectId, $memberId]);
         logProjectActivity($pdo, $projectId, $user['id'], 'member_removed', null);
+        if ($memberId != $user['id']) {
+            $stmt = $pdo->prepare("SELECT name FROM projects WHERE id = ?");
+            $stmt->execute([$projectId]);
+            $p = $stmt->fetch();
+            pushNotification($pdo, $memberId, "تمت إزالتك من فريق مشروع \"" . ($p['name'] ?? '') . "\"", 'project', ['title' => 'أُزلت من مشروع', 'entityType' => 'project', 'entityId' => $projectId, 'sendWhatsapp' => false]);
+        }
         respond(['success' => true]);
     }
 
@@ -914,6 +954,30 @@ switch ($action) {
         respond(['workload' => getTeamWorkload($pdo)]);
     }
 
+    /* ============ Phase 2 Batch 2: Notification read-state ============ */
+    case 'notificationsUnreadCount': {
+        $user = requireLogin($pdo);
+        $stmt = $pdo->prepare("SELECT COUNT(*) c FROM notifications WHERE user_id = ? AND is_read = 0");
+        $stmt->execute([$user['id']]);
+        respond(['count' => (int) $stmt->fetch()['c']]);
+    }
+
+    case 'markNotificationRead': {
+        // user_id يُستخرج من الجلسة حصرًا — ما فيه أي طريقة يقرأ فيها مستخدم إشعارات غيره
+        $user = requireLogin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("UPDATE notifications SET is_read = 1, read_at = NOW() WHERE id = ? AND user_id = ?")
+            ->execute([$b['id'] ?? 0, $user['id']]);
+        respond(['success' => true]);
+    }
+
+    case 'markAllNotificationsRead': {
+        $user = requireLogin($pdo);
+        $pdo->prepare("UPDATE notifications SET is_read = 1, read_at = NOW() WHERE user_id = ? AND is_read = 0")
+            ->execute([$user['id']]);
+        respond(['success' => true]);
+    }
+
     /* ============ سير مراجعة المهام (State Machine محكوم) ============ */
     case 'submitForReview': {
         $user = requireLogin($pdo);
@@ -947,9 +1011,9 @@ switch ($action) {
             $stmt = $pdo->prepare("SELECT manager_id FROM projects WHERE id = ?");
             $stmt->execute([$task['project_id']]);
             $mgr = $stmt->fetch();
-            if ($mgr && $mgr['manager_id']) pushNotification($pdo, $mgr['manager_id'], "مهمة \"{$task['title']}\" جاهزة للمراجعة.", 'task');
+            if ($mgr && $mgr['manager_id']) pushNotification($pdo, $mgr['manager_id'], "مهمة \"{$task['title']}\" جاهزة للمراجعة.", 'task', ['title' => 'مهمة بانتظار مراجعتك', 'entityType' => 'task', 'entityId' => $taskId]);
         } elseif ($task['created_by']) {
-            pushNotification($pdo, $task['created_by'], "مهمة \"{$task['title']}\" جاهزة للمراجعة.", 'task');
+            pushNotification($pdo, $task['created_by'], "مهمة \"{$task['title']}\" جاهزة للمراجعة.", 'task', ['title' => 'مهمة بانتظار مراجعتك', 'entityType' => 'task', 'entityId' => $taskId]);
         }
         respond(['success' => true]);
     }
@@ -991,7 +1055,7 @@ switch ($action) {
         $aStmt = $pdo->prepare("SELECT user_id FROM task_assignees WHERE task_id = ?");
         $aStmt->execute([$taskId]);
         foreach ($aStmt->fetchAll() as $a) {
-            pushNotification($pdo, $a['user_id'], "تم اعتماد مهمتك \"{$task['title']}\" ✅", 'points');
+            pushNotification($pdo, $a['user_id'], "تم اعتماد مهمتك \"{$task['title']}\" ✅", 'points', ['title' => 'تم اعتماد المهمة', 'entityType' => 'task', 'entityId' => $taskId]);
         }
         respond(['success' => true]);
     }
@@ -1026,7 +1090,7 @@ switch ($action) {
         $aStmt = $pdo->prepare("SELECT user_id FROM task_assignees WHERE task_id = ?");
         $aStmt->execute([$taskId]);
         foreach ($aStmt->fetchAll() as $a) {
-            pushNotification($pdo, $a['user_id'], "طُلب تعديل على مهمة \"{$task['title']}\": {$note}", 'task');
+            pushNotification($pdo, $a['user_id'], "طُلب تعديل على مهمة \"{$task['title']}\": {$note}", 'task', ['title' => 'طُلب تعديل على مهمتك', 'entityType' => 'task', 'entityId' => $taskId]);
         }
         respond(['success' => true]);
     }
