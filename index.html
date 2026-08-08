@@ -2380,6 +2380,28 @@ function adminAttendance(){
   </div>
 
   <div class="card" style="margin-bottom:16px;">
+    <div class="section-title">⏱️ أتمتة تسجيل الدوام</div>
+    <p style="font-size:12px;color:var(--text-muted);line-height:1.8;margin-bottom:12px;">
+      حلول لمشكلة نسيان الموظفين تسجيل الحضور أو الانصراف. <b>الاثنين يحتاجوا مهمة الكرون تكون شغّالة على الاستضافة.</b>
+    </p>
+    <form id="attendanceAutomationForm">
+      <label style="display:flex;align-items:flex-start;gap:9px;font-size:13px;margin-bottom:14px;cursor:pointer;">
+        <input type="checkbox" name="reminderEnabled" ${Number(g.checkoutReminderEnabled)?'checked':''} style="width:17px;height:17px;margin-top:2px;"/>
+        <span><b>تذكير الانصراف بواتساب</b>
+          <div style="font-size:11.5px;color:var(--text-faint);line-height:1.7;margin-top:2px;">لو خلص دوام الموظف ولسا ما سجّل انصراف، بيوصله تذكير واتساب (مرة وحدة باليوم).</div>
+        </span>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:9px;font-size:13px;margin-bottom:14px;cursor:pointer;">
+        <input type="checkbox" name="autoCheckoutEnabled" ${Number(g.autoCheckoutEnabled)?'checked':''} style="width:17px;height:17px;margin-top:2px;"/>
+        <span><b>الإغلاق التلقائي للانصراف</b>
+          <div style="font-size:11.5px;color:var(--text-faint);line-height:1.7;margin-top:2px;">بعد ساعة ونص من نهاية دوامه، النظام بيسجّل انصرافه تلقائيًا عند وقت نهاية الدوام الرسمي، وبتظهر عليه علامة «تلقائي».</div>
+        </span>
+      </label>
+      <button type="submit" class="btn btn-primary" style="width:100%;">حفظ إعدادات الأتمتة</button>
+    </form>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
     <div class="section-title">طلبات الإجازة ${pending.length>0?`<span class="badge badge-warning">${pending.length} بانتظار المراجعة</span>`:''}</div>
     ${leaves.length===0?`<div class="empty">لا توجد طلبات إجازة بعد</div>`:`
     <table><thead><tr><th>الموظف</th><th>من</th><th>إلى</th><th>السبب</th><th>الحالة</th><th></th></tr></thead><tbody>
@@ -2409,7 +2431,7 @@ function adminAttendance(){
           rightSide = `
             ${statusBadge(r.status)}
             <span class="today-time-chip">🟢 ${(r.checkIn||'').slice(0,5)}</span>
-            ${r.checkOut?`<span class="today-time-chip">🔴 ${r.checkOut.slice(0,5)}</span>`:`<span class="today-time-chip" style="color:var(--warning);">🟡 بالدوام الآن</span>`}
+            ${r.checkOut?`<span class="today-time-chip">🔴 ${r.checkOut.slice(0,5)}${Number(r.autoCheckout)?' <span style="color:var(--warning);font-size:10px;">(تلقائي)</span>':''}</span>`:`<span class="today-time-chip" style="color:var(--warning);">🟡 بالدوام الآن</span>`}
             ${worked!==null?`<span style="font-weight:800;font-size:12px;color:${worked>=exp?'var(--success)':'var(--warning)'};">${worked}س/${exp}س</span>`:''}
           `;
         }
@@ -2433,7 +2455,7 @@ function adminAttendance(){
       const exp = expectedHours(e);
       return `<td>
         ${statusBadge(r.status)}
-        <div style="font-size:10.5px;margin-top:4px;color:var(--text-muted);" dir="ltr">${(r.checkIn||'').slice(0,5)} ← ${r.checkOut?r.checkOut.slice(0,5):'…'}</div>
+        <div style="font-size:10.5px;margin-top:4px;color:var(--text-muted);" dir="ltr">${(r.checkIn||'').slice(0,5)} ← ${r.checkOut?r.checkOut.slice(0,5):'…'}${Number(r.autoCheckout)?' ⚙️':''}</div>
         ${r.checkOut?`<div style="font-size:10px;font-weight:700;color:${worked>=exp?'var(--success)':'var(--warning)'};">${worked}س${worked<exp?' ⚠️':''}</div>`:''}
       </td>`;
     }).join('')}</tr>`).join('')}
@@ -3727,6 +3749,14 @@ function attachAppEvents(){
     if(res.error){ showToast(res.error); return; }
     await refresh();
     showToast(f.enabled.checked ? 'تم تفعيل الرسائل التحفيزية 💛' : 'تم حفظ الإعدادات (معطّلة حاليًا)');
+  });
+  document.getElementById('attendanceAutomationForm')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const f = e.target;
+    const res = await apiPost('updateAttendanceAutomation', { reminderEnabled: f.reminderEnabled.checked, autoCheckoutEnabled: f.autoCheckoutEnabled.checked });
+    if(res.error){ showToast(res.error); return; }
+    await refresh();
+    showToast('تم حفظ إعدادات الأتمتة ✅');
   });
   document.getElementById('geofenceForm')?.addEventListener('submit', async (e)=>{
     e.preventDefault();

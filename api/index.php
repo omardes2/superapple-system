@@ -147,7 +147,8 @@ switch ($action) {
             whatsapp_verify_token AS whatsappVerifyToken, whatsapp_app_secret AS whatsappAppSecret,
             geofence_enabled AS geofenceEnabled, office_latitude AS officeLatitude,
             office_longitude AS officeLongitude, geofence_radius AS geofenceRadius,
-            motivation_enabled AS motivationEnabled, motivation_delay_minutes AS motivationDelayMinutes, motivation_daily_count AS motivationDailyCount
+            motivation_enabled AS motivationEnabled, motivation_delay_minutes AS motivationDelayMinutes, motivation_daily_count AS motivationDailyCount,
+            auto_checkout_enabled AS autoCheckoutEnabled, checkout_reminder_enabled AS checkoutReminderEnabled
             FROM settings WHERE id = 1")->fetch();
 
         $payload = ['hasUsers' => $hasUsers, 'currentUser' => $currentUser, 'settings' => $settingsRow ?: null];
@@ -200,9 +201,9 @@ switch ($action) {
             $payload['tasks'] = $tasks;
 
             if ($isAdmin) {
-                $payload['attendance'] = $pdo->query("SELECT id, user_id AS userId, date, check_in AS checkIn, check_out AS checkOut, status FROM attendance")->fetchAll();
+                $payload['attendance'] = $pdo->query("SELECT id, user_id AS userId, date, check_in AS checkIn, check_out AS checkOut, status, auto_checkout AS autoCheckout FROM attendance")->fetchAll();
             } else {
-                $stmt = $pdo->prepare("SELECT id, user_id AS userId, date, check_in AS checkIn, check_out AS checkOut, status FROM attendance WHERE user_id = ?");
+                $stmt = $pdo->prepare("SELECT id, user_id AS userId, date, check_in AS checkIn, check_out AS checkOut, status, auto_checkout AS autoCheckout FROM attendance WHERE user_id = ?");
                 $stmt->execute([$currentUser['id']]);
                 $payload['attendance'] = $stmt->fetchAll();
             }
@@ -679,6 +680,14 @@ switch ($action) {
         }
         $pdo->prepare("UPDATE settings SET motivation_enabled = ?, motivation_delay_minutes = ?, motivation_daily_count = ? WHERE id = 1")
             ->execute([$enabled, $delay, $dailyCount]);
+        respond(['success' => true]);
+    }
+
+    case 'updateAttendanceAutomation': {
+        requireAdmin($pdo);
+        $b = bodyInput();
+        $pdo->prepare("UPDATE settings SET checkout_reminder_enabled = ?, auto_checkout_enabled = ? WHERE id = 1")
+            ->execute([!empty($b['reminderEnabled']) ? 1 : 0, !empty($b['autoCheckoutEnabled']) ? 1 : 0]);
         respond(['success' => true]);
     }
 

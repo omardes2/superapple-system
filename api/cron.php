@@ -134,4 +134,62 @@ foreach ($employees as $emp) {
     $sentCount++;
 }
 
-echo "تم فحص {$checkedCount} موظف، وإرسال {$sentCount} تنبيه تأخير و{$motivSent} رسالة تحفيزية في " . date('Y-m-d H:i:s');
+/* ============================================================
+   تذكير الانصراف + الإغلاق التلقائي
+   - التذكير: لو خلص دوامه ولسا ما سجّل خروج، منبّهه بواتساب (مرة وحدة باليوم)
+   - الإغلاق التلقائي: بعد مهلة إضافية، منسجّل خروجه عند وقت نهاية دوامه الرسمي
+     مع علامة auto_checkout=1 عشان يضل واضح إنه مو تسجيل يدوي
+   ============================================================ */
+$checkoutReminders = 0;
+$autoClosed = 0;
+try {
+    $cs = $pdo->query("SELECT auto_checkout_enabled, checkout_reminder_enabled FROM settings WHERE id = 1")->fetch();
+    $remindOn = $cs && (int) $cs['checkout_reminder_enabled'];
+    $autoOn = $cs && (int) $cs['auto_checkout_enabled'];
+
+    if ($remindOn || $autoOn) {
+        $AUTO_CLOSE_GRACE_MIN = 90; // مهلة بعد نهاية الدوام قبل الإغلاق التلقائي
+
+        $open = $pdo->prepare("
+            SELECT a.id, a.user_id, a.check_in, u.name, u.phone, u.work_end AS workEnd
+            FROM attendance a
+            JOIN users u ON u.id = a.user_id
+            WHERE a.date = ? AND a.check_in IS NOT NULL AND a.check_out IS NULL
+        ");
+        $open->execute([$today]);
+
+        foreach ($open->fetchAll() as $rec) {
+            $workEnd = $rec['workEnd'] ?: '16:00:00';
+            $endTs = strtotime($today . ' ' . $workEnd);
+
+            // 1) تذكير الخروج — بعد ما يخلص دوامه مباشرة
+            if ($remindOn && $now >= $endTs) {
+                $already = $pdo->prepare("SELECT id FROM notifications WHERE user_id = ? AND type = 'checkout_reminder' AND DATE(created_at) = ?");
+                $already->execute([$rec['user_id'], $today]);
+                if (!$already->fetch()) {
+                    pushNotification($pdo, $rec['user_id'],
+                        "🏁 خلص دوامك الساعة " . substr($workEnd, 0, 5) . " ولسا ما سجّلت انصرافك. يرجى تسجيل الانصراف من النظام.",
+                        'checkout_reminder');
+                    $checkoutReminders++;
+                }
+            }
+
+            // 2) الإغلاق التلقائي — بعد مهلة إضافية من نهاية الدوام
+            if ($autoOn && $now >= ($endTs + $AUTO_CLOSE_GRACE_MIN * 60)) {
+                // ما نغلق قبل وقت الدخول (حماية من حالات غريبة زي دوام ليلي)
+                if (strtotime($today . ' ' . $rec['check_in']) < $endTs) {
+                    $pdo->prepare("UPDATE attendance SET check_out = ?, auto_checkout = 1 WHERE id = ?")
+                        ->execute([$workEnd, $rec['id']]);
+                    pushNotification($pdo, $rec['user_id'],
+                        "تم تسجيل انصرافك تلقائيًا الساعة " . substr($workEnd, 0, 5) . " لأنك ما سجّلته بنفسك. لو الوقت مش دقيق، راجع المدير لتعديله.",
+                        'checkout', ['title' => 'إغلاق تلقائي للانصراف', 'sendWhatsapp' => false]);
+                    $autoClosed++;
+                }
+            }
+        }
+    }
+} catch (\Throwable $e) {
+    // أعمدة الإغلاق التلقائي قد لا تكون موجودة بعد — نتخطى بأمان
+}
+
+echo "تم فحص {$checkedCount} موظف، وإرسال {$sentCount} تنبيه تأخير و{$motivSent} رسالة تحفيزية و{$checkoutReminders} تذكير انصراف و{$autoClosed} إغلاق تلقائي في " . date('Y-m-d H:i:s');

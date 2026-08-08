@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS attendance (
   status ENUM('present','late','absent') NOT NULL,
   latitude DECIMAL(10,7) DEFAULT NULL,
   longitude DECIMAL(10,7) DEFAULT NULL,
+  auto_checkout TINYINT(1) NOT NULL DEFAULT 0,
   UNIQUE KEY user_date (user_id, date),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -318,7 +319,9 @@ CREATE TABLE IF NOT EXISTS settings (
   geofence_radius INT NOT NULL DEFAULT 200,
   motivation_enabled TINYINT(1) NOT NULL DEFAULT 0,
   motivation_delay_minutes INT NOT NULL DEFAULT 60,
-  motivation_daily_count INT NOT NULL DEFAULT 2
+  motivation_daily_count INT NOT NULL DEFAULT 2,
+  auto_checkout_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  checkout_reminder_enabled TINYINT(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO settings (id) VALUES (1)
