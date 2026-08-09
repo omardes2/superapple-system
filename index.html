@@ -16,6 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#F7F6F3;
@@ -328,7 +329,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [], motivationMessages: [], motivationSentToday: 0, myPasswordModal: false, resetPassModal: null,
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [], motivationMessages: [], motivationSentToday: 0, myPasswordModal: false, resetPassModal: null, claimImportOpen: false, claimImportRows: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'active', pointsMonth: null, reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -550,6 +551,95 @@ async function handleAddPayment(id){
   await refresh();
   showToast('تم تسجيل الدفعة');
 }
+/* ---------------- استيراد المطالبات من Excel ---------------- */
+// مرادفات أسماء الأعمدة — عربي وإنجليزي، عشان الملف يشتغل مهما كانت التسمية
+const CLAIM_COL_ALIASES = {
+  name:   ['اسم الشركة','الشركة','اسم العميل','العميل','الاسم','المدين','اسم المدين','name','company','client','customer'],
+  amount: ['الرصيد','المبلغ','المستحق','المبلغ المستحق','الدين','القيمة','amount','balance','due','total'],
+  phone:  ['رقم الواتساب','الواتساب','واتساب','رقم الجوال','الجوال','رقم الهاتف','الهاتف','الرقم','phone','whatsapp','mobile','tel'],
+  dueDate:['تاريخ الاستحقاق','الاستحقاق','التاريخ','due date','duedate','date'],
+  description:['ملاحظات','الوصف','البيان','التفاصيل','description','notes','note'],
+};
+
+function normalizeHeader(h){
+  return String(h||'').trim().toLowerCase().replace(/[\s_\-]+/g,' ');
+}
+function detectClaimColumns(headers){
+  const map = {};
+  headers.forEach((h, idx)=>{
+    const norm = normalizeHeader(h);
+    for(const [key, aliases] of Object.entries(CLAIM_COL_ALIASES)){
+      if(map[key] !== undefined) continue;
+      if(aliases.some(a => norm === normalizeHeader(a) || norm.includes(normalizeHeader(a)))){
+        map[key] = idx;
+        break;
+      }
+    }
+  });
+  return map;
+}
+function parseAmount(v){
+  if(typeof v === 'number') return v;
+  const cleaned = String(v??'').replace(/[^\d.\-]/g,'');
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : n;
+}
+function parsePhone(v){
+  // الأرقام بالإكسل بتتحول أحيانًا لصيغة علمية أو بتفقد الصفر الأول
+  let s = String(v??'').trim();
+  if(/e\+/i.test(s)) s = Number(s).toFixed(0);
+  return s.replace(/\D/g,'');
+}
+
+async function handleClaimFile(file){
+  if(!file) return;
+  if(typeof XLSX === 'undefined'){ showToast('مكتبة قراءة الملفات لم تُحمّل — حدّث الصفحة وحاول ثانية'); return; }
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(sheet, { header:1, defval:'', raw:true });
+    const nonEmpty = raw.filter(r => r.some(c => String(c).trim() !== ''));
+    if(nonEmpty.length < 2){ showToast('الملف فاضي أو ما فيه بيانات كافية'); return; }
+
+    const headers = nonEmpty[0];
+    const cols = detectClaimColumns(headers);
+    if(cols.name === undefined || cols.amount === undefined){
+      showToast('ما قدرت أتعرّف على أعمدة (اسم الشركة) و(الرصيد) — راجع أسماء العناوين بأول صف');
+      return;
+    }
+
+    state.claimImportRows = nonEmpty.slice(1).map(r => ({
+      name: String(r[cols.name] ?? '').trim(),
+      amount: parseAmount(r[cols.amount]),
+      phone: cols.phone !== undefined ? parsePhone(r[cols.phone]) : '',
+      dueDate: cols.dueDate !== undefined ? String(r[cols.dueDate] ?? '').trim() : '',
+      description: cols.description !== undefined ? String(r[cols.description] ?? '').trim() : '',
+    })).filter(r => r.name || r.amount>0);
+
+    render();
+    showToast(`تمت قراءة ${state.claimImportRows.length} صف — راجعها قبل التأكيد`);
+  }catch(err){
+    showToast('تعذر قراءة الملف — تأكد إنه ملف Excel أو CSV صالح');
+  }
+}
+
+async function handleConfirmClaimImport(){
+  const rows = (state.claimImportRows||[]).filter(r=>r.name && r.amount>0);
+  if(rows.length===0){ showToast('ما في صفوف صالحة للاستيراد'); return; }
+  const replace = document.getElementById('claimImportReplace')?.checked;
+  showToast('جارِ الاستيراد...');
+  const res = await apiPost('importClaims', { rows, mode: replace ? 'replace' : 'add' });
+  if(res.error){ showToast(res.error); return; }
+  state.claimImportOpen = false;
+  state.claimImportRows = [];
+  await refresh();
+  let msg = `تمت إضافة ${res.added} مطالبة`;
+  if(res.updated) msg += ` وتحديث ${res.updated}`;
+  if(res.skipped) msg += ` وتخطي ${res.skipped}`;
+  showToast(msg + ' ✅');
+}
+
 async function handleSendReminder(id){
   const res = await apiPost('sendClaimReminder', { id });
   if(res.error){ showToast(res.error); return; }
@@ -2744,7 +2834,13 @@ function adminClaims(){
     <div class="card stat-card"><div class="stat-label">مطالبات متأخرة</div><div class="stat-value" style="color:var(--danger)">${overdueCount}</div></div>
     <div class="card stat-card"><div class="stat-label">محصّل هذا الشهر</div><div class="stat-value" style="color:var(--success)">${collectedThisMonth.toLocaleString()}</div></div>
   </div>
-  <div class="section-title">قائمة المطالبات (${claims.length}) ${state.claimModal?'':'<button class="btn btn-primary btn-sm" id="openClaimModal">+ مطالبة جديدة</button>'}</div>
+  <div class="section-title">قائمة المطالبات (${claims.length})
+    <span style="display:flex;gap:6px;">
+      ${state.claimImportOpen?'':'<button class="btn btn-ghost btn-sm" id="openClaimImport">📥 استيراد من Excel</button>'}
+      ${state.claimModal?'':'<button class="btn btn-primary btn-sm" id="openClaimModal">+ مطالبة جديدة</button>'}
+    </span>
+  </div>
+  ${state.claimImportOpen ? claimImportPanel() : ''}
   ${state.claimModal ? claimForm() : ''}
   ${claims.length===0?`<div class="card"><div class="empty">لا توجد مطالبات مالية بعد.</div></div>`:`
   <div class="card">
@@ -2790,6 +2886,65 @@ function claimReminderLogModal(){
     </div>`}
     <button type="button" class="btn btn-ghost" id="closeReminderLogModal" style="width:100%;margin-top:14px;">إغلاق</button>
   </div></div>`;
+}
+
+function claimImportPanel(){
+  const rows = state.claimImportRows || [];
+  const valid = rows.filter(r=>r.name && r.amount>0);
+  const invalid = rows.length - valid.length;
+  return `
+  <div class="card" style="margin-bottom:16px;border-color:var(--accent);">
+    <div class="section-title">📥 استيراد المطالبات من ملف Excel
+      <button type="button" class="btn btn-ghost btn-sm" id="closeClaimImport">إغلاق ✕</button>
+    </div>
+
+    ${rows.length===0 ? `
+    <p style="font-size:12.5px;color:var(--text-muted);line-height:1.9;margin-bottom:12px;">
+      ارفع ملف <b>Excel (.xlsx)</b> أو <b>CSV</b>. لازم يكون فيه <b>صف عناوين بأول سطر</b>، والنظام بيتعرّف على الأعمدة تلقائيًا لو كانت مسمّاة بأي من هذي:
+    </p>
+    <div style="background:var(--surface-2);border-radius:var(--radius-sm);padding:12px;font-size:12px;line-height:2;margin-bottom:14px;">
+      <div>🏢 <b>اسم الشركة:</b> اسم الشركة، الشركة، العميل، الاسم، name، company</div>
+      <div>💰 <b>الرصيد:</b> الرصيد، المبلغ، المستحق، amount، balance</div>
+      <div>📱 <b>رقم الواتساب:</b> رقم الواتساب، الواتساب، الجوال، الهاتف، phone، whatsapp</div>
+      <div style="color:var(--text-faint);">📅 تاريخ الاستحقاق (اختياري، بصيغة YYYY-MM-DD) · 📝 ملاحظات (اختياري)</div>
+    </div>
+    <input type="file" id="claimImportFile" accept=".xlsx,.xls,.csv" style="width:100%;padding:10px;border:1.5px dashed var(--border);border-radius:10px;background:var(--surface-2);"/>
+    ` : `
+    <div class="grid grid-3" style="margin-bottom:14px;">
+      <div class="card stat-card"><div class="stat-label">صفوف صالحة</div><div class="stat-value" style="color:var(--success);">${valid.length}</div></div>
+      <div class="card stat-card"><div class="stat-label">صفوف غير صالحة</div><div class="stat-value" style="color:${invalid?'var(--danger)':'var(--text-muted)'};">${invalid}</div></div>
+      <div class="card stat-card"><div class="stat-label">إجمالي المبالغ</div><div class="stat-value">${valid.reduce((s,r)=>s+r.amount,0).toLocaleString()}</div></div>
+    </div>
+
+    <div style="max-height:300px;overflow-y:auto;margin-bottom:14px;">
+      <table><thead><tr><th>#</th><th>اسم الشركة</th><th>الرصيد</th><th>واتساب</th><th>الحالة</th></tr></thead><tbody>
+      ${rows.slice(0,100).map((r,i)=>{
+        const ok = r.name && r.amount>0;
+        return `<tr style="${ok?'':'background:var(--danger-tint);'}">
+          <td style="color:var(--text-faint);">${i+1}</td>
+          <td>${r.name||'<span style="color:var(--danger);">— ناقص —</span>'}</td>
+          <td style="font-weight:700;">${r.amount>0?r.amount.toLocaleString():'<span style="color:var(--danger);">— غير صالح —</span>'}</td>
+          <td dir="ltr" style="font-size:11.5px;">${r.phone||'—'}</td>
+          <td>${ok?'<span class="badge badge-success">جاهز</span>':'<span class="badge badge-danger">سيُتخطى</span>'}</td>
+        </tr>`;
+      }).join('')}
+      </tbody></table>
+      ${rows.length>100?`<div style="text-align:center;padding:10px;font-size:12px;color:var(--text-faint);">... و${rows.length-100} صف إضافي</div>`:''}
+    </div>
+
+    <label style="display:flex;align-items:flex-start;gap:8px;font-size:12.5px;margin-bottom:14px;cursor:pointer;">
+      <input type="checkbox" id="claimImportReplace" style="width:16px;height:16px;margin-top:2px;"/>
+      <span><b>تحديث الشركات الموجودة مسبقًا</b>
+        <div style="font-size:11px;color:var(--text-faint);line-height:1.7;">لو مش مفعّل، أي شركة موجودة بنفس الاسم رح تُتخطى بدل ما تتكرر.</div>
+      </span>
+    </label>
+
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-ghost" id="cancelClaimImport" style="flex:1;">إلغاء</button>
+      <button class="btn btn-primary" id="confirmClaimImport" style="flex:2;" ${valid.length===0?'disabled':''}>استيراد ${valid.length} مطالبة</button>
+    </div>
+    `}
+  </div>`;
 }
 
 function claimForm(){
@@ -3736,6 +3891,11 @@ function attachAppEvents(){
   document.getElementById('closeResetPassModal')?.addEventListener('click', ()=>{ state.resetPassModal = null; render(); });
   document.getElementById('resetPassModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='resetPassModalBg'){ state.resetPassModal=null; render(); }});
   document.getElementById('resetPassForm')?.addEventListener('submit', handleResetPassword);
+  document.getElementById('openClaimImport')?.addEventListener('click', ()=>{ state.claimImportOpen = true; state.claimImportRows = []; render(); });
+  document.getElementById('closeClaimImport')?.addEventListener('click', ()=>{ state.claimImportOpen = false; state.claimImportRows = []; render(); });
+  document.getElementById('cancelClaimImport')?.addEventListener('click', ()=>{ state.claimImportOpen = false; state.claimImportRows = []; render(); });
+  document.getElementById('claimImportFile')?.addEventListener('change', (e)=> handleClaimFile(e.target.files[0]));
+  document.getElementById('confirmClaimImport')?.addEventListener('click', handleConfirmClaimImport);
   document.getElementById('addMotivationForm')?.addEventListener('submit', handleAddMotivation);
   document.querySelectorAll('[data-toggle-motivation]').forEach(el=>{
     el.addEventListener('change', ()=> handleToggleMotivation(el.getAttribute('data-toggle-motivation'), el.checked));

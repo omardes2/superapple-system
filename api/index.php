@@ -803,6 +803,63 @@ switch ($action) {
     }
 
     /* ============ المطالبات المالية ============ */
+    case 'importClaims': {
+        $user = requireClaimsAccess($pdo);
+        $b = bodyInput();
+        $rows = $b['rows'] ?? [];
+        if (!is_array($rows) || empty($rows)) respond(['error' => 'ما في بيانات للاستيراد'], 400);
+        if (count($rows) > 2000) respond(['error' => 'الحد الأقصى 2000 صف بالمرة الواحدة'], 400);
+
+        $mode = ($b['mode'] ?? 'add') === 'replace' ? 'replace' : 'add';
+
+        // وضع الاستبدال: نمسح المطالبات المدفوعة بالكامل فقط، ونحدّث الباقي — حماية من فقدان بيانات
+        $added = 0; $updated = 0; $skipped = 0;
+        $errors = [];
+
+        $findStmt = $pdo->prepare("SELECT id FROM financial_claims WHERE debtor_name = ? LIMIT 1");
+        $insStmt = $pdo->prepare("INSERT INTO financial_claims (debtor_name, debtor_phone, amount, description, due_date, created_by) VALUES (?, ?, ?, ?, ?, ?)");
+        $updStmt = $pdo->prepare("UPDATE financial_claims SET debtor_phone = ?, amount = ?, description = COALESCE(NULLIF(?, ''), description), due_date = COALESCE(?, due_date) WHERE id = ?");
+
+        foreach ($rows as $i => $r) {
+            $name = trim((string) ($r['name'] ?? ''));
+            $phoneRaw = trim((string) ($r['phone'] ?? ''));
+            $amountRaw = $r['amount'] ?? '';
+
+            if ($name === '') { $skipped++; continue; }
+
+            // تنظيف الرقم: أرقام فقط (يتحمّل مسافات وشرطات و+ من الإكسل)
+            $phone = preg_replace('/\D/', '', $phoneRaw);
+
+            // تنظيف المبلغ: يتحمّل فواصل الآلاف ورموز العملة
+            $amount = (float) preg_replace('/[^0-9.\-]/', '', (string) $amountRaw);
+            if ($amount <= 0) {
+                $skipped++;
+                if (count($errors) < 10) $errors[] = "صف " . ($i + 1) . " ({$name}): مبلغ غير صالح";
+                continue;
+            }
+
+            $desc = trim((string) ($r['description'] ?? ''));
+            $due = trim((string) ($r['dueDate'] ?? ''));
+            $due = ($due !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $due)) ? $due : null;
+
+            $findStmt->execute([$name]);
+            $existing = $findStmt->fetch();
+
+            if ($existing && $mode === 'replace') {
+                $updStmt->execute([$phone, $amount, $desc, $due, $existing['id']]);
+                $updated++;
+            } elseif ($existing && $mode === 'add') {
+                $skipped++;
+                if (count($errors) < 10) $errors[] = "صف " . ($i + 1) . " ({$name}): موجود مسبقًا — تم تخطيه";
+            } else {
+                $insStmt->execute([$name, $phone, $amount, $desc, $due, $user['id']]);
+                $added++;
+            }
+        }
+
+        respond(['success' => true, 'added' => $added, 'updated' => $updated, 'skipped' => $skipped, 'errors' => $errors]);
+    }
+
     case 'addClaim': {
         $user = requireClaimsAccess($pdo);
         $b = bodyInput();
