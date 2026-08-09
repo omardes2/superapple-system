@@ -329,7 +329,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [], motivationMessages: [], motivationSentToday: 0, myPasswordModal: false, resetPassModal: null, claimImportOpen: false, claimImportRows: [],
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [], motivationMessages: [], motivationSentToday: 0, myPasswordModal: false, resetPassModal: null, claimImportOpen: false, claimImportRows: [], claimImportHeaders: [], claimImportCols: {}, claimImportRaw: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'active', pointsMonth: null, reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -566,16 +566,28 @@ function normalizeHeader(h){
 }
 function detectClaimColumns(headers){
   const map = {};
-  headers.forEach((h, idx)=>{
-    const norm = normalizeHeader(h);
-    for(const [key, aliases] of Object.entries(CLAIM_COL_ALIASES)){
-      if(map[key] !== undefined) continue;
-      if(aliases.some(a => norm === normalizeHeader(a) || norm.includes(normalizeHeader(a)))){
-        map[key] = idx;
-        break;
-      }
-    }
-  });
+  const usedCols = new Set();
+  const norms = headers.map(h => normalizeHeader(h));
+
+  // مرحلة 1: تطابق تام بالاسم — الأدق، فبناخده أولًا
+  for(const [key, aliases] of Object.entries(CLAIM_COL_ALIASES)){
+    const idx = norms.findIndex((n,i) => !usedCols.has(i) && aliases.some(a => n === normalizeHeader(a)));
+    if(idx !== -1){ map[key] = idx; usedCols.add(idx); }
+  }
+  // مرحلة 2: تطابق جزئي (يحتوي على) — للأعمدة اللي لسا ما تعرّفنا عليها
+  for(const [key, aliases] of Object.entries(CLAIM_COL_ALIASES)){
+    if(map[key] !== undefined) continue;
+    const idx = norms.findIndex((n,i) => !usedCols.has(i) && aliases.some(a => {
+      const al = normalizeHeader(a);
+      return n.includes(al) || al.includes(n);
+    }));
+    if(idx !== -1){ map[key] = idx; usedCols.add(idx); }
+  }
+  // مرحلة 3: تخمين احتياطي للهاتف — أي عمود باقٍ محتواه أرقام طويلة (9+ خانة)
+  if(map.phone === undefined){
+    const idx = norms.findIndex((n,i) => !usedCols.has(i) && /(?:رقم|جوال|هاتف|موبايل|تلفون|phone|mobile|tel|no\.?|number)/i.test(n));
+    if(idx !== -1){ map.phone = idx; usedCols.add(idx); }
+  }
   return map;
 }
 function parseAmount(v){
@@ -605,23 +617,34 @@ async function handleClaimFile(file){
     const headers = nonEmpty[0];
     const cols = detectClaimColumns(headers);
     if(cols.name === undefined || cols.amount === undefined){
-      showToast('ما قدرت أتعرّف على أعمدة (اسم الشركة) و(الرصيد) — راجع أسماء العناوين بأول صف');
+      const found = headers.map(h=>`«${String(h??'').trim()}»`).join('، ');
+      showToast(`ما قدرت أتعرّف على عمود ${cols.name===undefined?'(اسم الشركة)':'(الرصيد)'} — الأعمدة الموجودة بملفك: ${found}`);
       return;
     }
 
-    state.claimImportRows = nonEmpty.slice(1).map(r => ({
-      name: String(r[cols.name] ?? '').trim(),
-      amount: parseAmount(r[cols.amount]),
-      phone: cols.phone !== undefined ? parsePhone(r[cols.phone]) : '',
-      dueDate: cols.dueDate !== undefined ? String(r[cols.dueDate] ?? '').trim() : '',
-      description: cols.description !== undefined ? String(r[cols.description] ?? '').trim() : '',
-    })).filter(r => r.name || r.amount>0);
+    // نحفظ معلومات التشخيص عشان نعرض للمستخدم شو تعرّفنا عليه بالضبط
+    state.claimImportHeaders = headers.map(h=>String(h??'').trim());
+    state.claimImportCols = cols;
+    state.claimImportRaw = nonEmpty.slice(1);
+    rebuildClaimRows();
 
     render();
     showToast(`تمت قراءة ${state.claimImportRows.length} صف — راجعها قبل التأكيد`);
   }catch(err){
     showToast('تعذر قراءة الملف — تأكد إنه ملف Excel أو CSV صالح');
   }
+}
+
+// نبني الصفوف من البيانات الخام حسب الأعمدة المحددة — تُستدعى عند القراءة وعند التصحيح اليدوي
+function rebuildClaimRows(){
+  const cols = state.claimImportCols || {};
+  state.claimImportRows = (state.claimImportRaw||[]).map(r => ({
+    name: String(r[cols.name] ?? '').trim(),
+    amount: parseAmount(r[cols.amount]),
+    phone: cols.phone !== undefined ? parsePhone(r[cols.phone]) : '',
+    dueDate: cols.dueDate !== undefined ? String(r[cols.dueDate] ?? '').trim() : '',
+    description: cols.description !== undefined ? String(r[cols.description] ?? '').trim() : '',
+  })).filter(r => r.name || r.amount>0);
 }
 
 async function handleConfirmClaimImport(){
@@ -2910,6 +2933,25 @@ function claimImportPanel(){
     </div>
     <input type="file" id="claimImportFile" accept=".xlsx,.xls,.csv" style="width:100%;padding:10px;border:1.5px dashed var(--border);border-radius:10px;background:var(--surface-2);"/>
     ` : `
+    <div style="background:var(--surface-2);border-radius:var(--radius-sm);padding:12px;margin-bottom:14px;">
+      <div style="font-size:12px;font-weight:700;margin-bottom:8px;">🔍 الأعمدة اللي تعرّف عليها النظام:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;">
+        ${[['name','اسم الشركة'],['amount','الرصيد'],['phone','رقم الواتساب']].map(([key,label])=>{
+          const idx = (state.claimImportCols||{})[key];
+          const found = idx !== undefined;
+          return `<span class="badge ${found?'badge-success':'badge-danger'}">${label}: ${found?`«${(state.claimImportHeaders||[])[idx]}»`:'لم يُعثر عليه'}</span>`;
+        }).join('')}
+      </div>
+      ${(state.claimImportCols||{}).phone === undefined ? `
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:12px;color:var(--text-muted);">حدّد عمود الواتساب يدويًا:</span>
+        <select id="manualPhoneCol" style="max-width:220px;">
+          <option value="">— اختر العمود —</option>
+          ${(state.claimImportHeaders||[]).map((h,i)=>`<option value="${i}">${h||'(بدون عنوان)'}</option>`).join('')}
+        </select>
+      </div>` : ''}
+    </div>
+
     <div class="grid grid-3" style="margin-bottom:14px;">
       <div class="card stat-card"><div class="stat-label">صفوف صالحة</div><div class="stat-value" style="color:var(--success);">${valid.length}</div></div>
       <div class="card stat-card"><div class="stat-label">صفوف غير صالحة</div><div class="stat-value" style="color:${invalid?'var(--danger)':'var(--text-muted)'};">${invalid}</div></div>
@@ -3895,6 +3937,14 @@ function attachAppEvents(){
   document.getElementById('closeClaimImport')?.addEventListener('click', ()=>{ state.claimImportOpen = false; state.claimImportRows = []; render(); });
   document.getElementById('cancelClaimImport')?.addEventListener('click', ()=>{ state.claimImportOpen = false; state.claimImportRows = []; render(); });
   document.getElementById('claimImportFile')?.addEventListener('change', (e)=> handleClaimFile(e.target.files[0]));
+  document.getElementById('manualPhoneCol')?.addEventListener('change', (e)=>{
+    const v = e.target.value;
+    if(v === '') return;
+    state.claimImportCols = { ...state.claimImportCols, phone: parseInt(v) };
+    rebuildClaimRows();
+    render();
+    showToast('تم تحديث عمود الواتساب ✅');
+  });
   document.getElementById('confirmClaimImport')?.addEventListener('click', handleConfirmClaimImport);
   document.getElementById('addMotivationForm')?.addEventListener('submit', handleAddMotivation);
   document.querySelectorAll('[data-toggle-motivation]').forEach(el=>{
