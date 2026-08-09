@@ -1351,11 +1351,12 @@ function renderLogin(){
     <h1 class="auth-title">تسجيل الدخول</h1>
     <p class="auth-sub">أدخل بريدك الإلكتروني وكلمة السر للوصول إلى لوحتك</p>
     ${state.loginError ? `<div class="auth-error">${state.loginError}</div>` : ''}
-    <form id="loginForm">
-      <div class="field"><label>البريد الإلكتروني</label><input name="email" type="email" required placeholder="you@superapple.com"/></div>
-      <div class="field"><label>كلمة السر</label><input name="password" type="password" required placeholder="••••••••"/></div>
+    <form id="loginForm" method="post" action="#">
+      <div class="field"><label>البريد الإلكتروني</label><input name="email" type="email" required placeholder="you@superapple.com" autocomplete="username" autocapitalize="off" spellcheck="false"/></div>
+      <div class="field"><label>كلمة السر</label><input name="password" type="password" required placeholder="••••••••" autocomplete="current-password"/></div>
       <button class="btn btn-primary" type="submit">دخول</button>
     </form>
+    <div class="auth-note">💡 بعد أول تسجيل دخول، رح تفضل داخل النظام لمدة شهر بدون ما تعيد كتابة بياناتك.</div>
     <div class="auth-note">تحتاج حساب جديد؟ يقوم المدير بإضافتك من لوحة "الموظفين".</div>
   </div></div>`;
 }

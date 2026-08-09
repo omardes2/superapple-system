@@ -4,7 +4,33 @@
  * كل الطلبات تمر من هون عبر ?action=...
  */
 
+/* جلسة طويلة الأمد (30 يوم) — عشان الموظف ما يضطر يسجّل دخول كل يوم.
+   الكوكي مؤمّن: HttpOnly (ما تقدر أي سكربت تقرأه)، وSameSite=Lax (حماية من CSRF)،
+   وSecure تلقائيًا لما الموقع يشتغل على HTTPS. */
+$sessionLifetime = 60 * 60 * 24 * 30; // 30 يوم بالثواني
+ini_set('session.gc_maxlifetime', $sessionLifetime);
+session_set_cookie_params([
+    'lifetime' => $sessionLifetime,
+    'path' => '/',
+    'httponly' => true,
+    'samesite' => 'Lax',
+    'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+              || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'),
+]);
 session_start();
+
+// تجديد عمر الكوكي مع كل زيارة، فالموظف النشط ما بينقطع أبدًا
+if (!empty($_SESSION['user_id'])) {
+    setcookie(session_name(), session_id(), [
+        'expires' => time() + $sessionLifetime,
+        'path' => '/',
+        'httponly' => true,
+        'samesite' => 'Lax',
+        'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                  || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'),
+    ]);
+}
+
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/webauthn-lib/autoload.php';
