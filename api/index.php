@@ -896,8 +896,19 @@ switch ($action) {
         if (empty($claim['debtor_phone'])) respond(['error' => 'لا يوجد رقم واتساب مسجّل لهذا المدين'], 400);
 
         $remaining = round($claim['amount'] - $claim['paid_amount'], 2);
-        $dueTxt = $claim['due_date'] ? date('d/m/Y', strtotime($claim['due_date'])) : 'غير محدد';
-        $message = "تذكير من سوبر آبل: لديك مبلغ مستحق قدره {$remaining} بخصوص \"{$claim['description']}\"، تاريخ الاستحقاق {$dueTxt}. يرجى التواصل لتسوية الحساب.";
+        $name = trim($claim['debtor_name'] ?? '');
+        $desc = trim($claim['description'] ?? '');
+
+        // نبني الرسالة من المتوفر فقط — أي حقل فاضي يُتجاهل بدل ما يظهر كفراغ ""
+        $greeting = $name !== '' ? "مرحبًا {$name}،" : "مرحبًا،";
+        $message = "{$greeting}\n";
+        $message .= "تذكير من *سوبر آبل*: لديك مبلغ مستحق قدره *{$remaining}*";
+        if ($desc !== '') $message .= " بخصوص \"{$desc}\"";
+        if (!empty($claim['due_date'])) {
+            $message .= "، تاريخ الاستحقاق " . date('d/m/Y', strtotime($claim['due_date']));
+        }
+        $message .= ".\nيرجى التواصل معنا لتسوية الحساب. شكرًا لتعاونك 🌟";
+
         $result = sendWhatsAppCloud($pdo, $claim['debtor_phone'], $message);
         $pdo->prepare("INSERT INTO claim_reminders (claim_id, success) VALUES (?, ?)")->execute([$claim['id'], $result['success'] ? 1 : 0]);
         if (!$result['success']) respond(['error' => $result['error']], 400);
