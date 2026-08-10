@@ -329,7 +329,7 @@ const API = 'api/index.php';
 
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
-  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [], motivationMessages: [], motivationSentToday: 0, myPasswordModal: false, resetPassModal: null, claimImportOpen: false, claimImportRows: [], claimImportHeaders: [], claimImportCols: {}, claimImportRaw: [],
+  clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [], motivationMessages: [], motivationSentToday: 0, myPasswordModal: false, resetPassModal: null, claimImportOpen: false, claimImportRows: [], claimPreview: null, claimImportHeaders: [], claimImportCols: {}, claimImportRaw: [],
   currentUser: null, hasUsers: false, loading: true, loginError: '', fatalError: null,
   adminTab: 'dashboard', empTab: 'dashboard', reportsTab: 'overview', taskFilterTab: 'active', pointsMonth: null, reportFilter: { preset: 'thisMonth', from: '', to: '' },
   taskModal: false, empModal: false, clientModal: false, departmentModal: false, claimModal: false, scheduleModal: null, leaveModal: false, checkingIn: false, mobileMenuOpen: false, toast: null
@@ -664,9 +664,30 @@ async function handleConfirmClaimImport(){
 }
 
 async function handleSendReminder(id){
-  const res = await apiPost('sendClaimReminder', { id });
+  // نفتح المعاينة أولًا بدل الإرسال المباشر — عشان تشوف النص وتعدّله لو بدك
+  const res = await apiPost('previewClaimReminder', { id });
   if(res.error){ showToast(res.error); return; }
+  if(!res.hasPhone){ showToast('لا يوجد رقم واتساب مسجّل لهذا المدين'); return; }
+  state.claimPreview = { id, message: res.message, debtorName: res.debtorName, phone: res.phone };
+  render();
+}
+async function handleConfirmSendReminder(){
+  const p = state.claimPreview;
+  if(!p) return;
+  const edited = document.getElementById('claimPreviewText')?.value || p.message;
+  showToast('جارِ الإرسال...');
+  const res = await apiPost('sendClaimReminder', { id: p.id, customMessage: edited });
+  if(res.error){ showToast(res.error); return; }
+  state.claimPreview = null;
+  render();
   showToast('تم إرسال التذكير عبر واتساب ✅');
+}
+async function handleSaveClaimTemplate(e){
+  e.preventDefault();
+  const res = await apiPost('updateClaimTemplate', { template: e.target.template.value });
+  if(res.error){ showToast(res.error); return; }
+  await refresh();
+  showToast('تم حفظ القالب ✅');
 }
 
 /* ---------------- PROMPTS LIBRARY ---------------- */
@@ -2893,7 +2914,9 @@ function adminClaims(){
     </tbody></table>
     </div>
   </div>`}
-  ${state.claimReminderLogFor ? claimReminderLogModal() : ''}`;
+  ${claimTemplateEditor()}
+  ${state.claimReminderLogFor ? claimReminderLogModal() : ''}
+  ${state.claimPreview ? claimPreviewModal() : ''}`;
 }
 
 function claimReminderLogModal(){
@@ -2909,6 +2932,53 @@ function claimReminderLogModal(){
     </div>`}
     <button type="button" class="btn btn-ghost" id="closeReminderLogModal" style="width:100%;margin-top:14px;">إغلاق</button>
   </div></div>`;
+}
+
+function claimPreviewModal(){
+  const p = state.claimPreview;
+  if(!p) return '';
+  return `<div class="modal-bg" id="claimPreviewBg"><div class="modal" style="max-width:520px;">
+    <h3 class="modal-title">📱 معاينة رسالة التذكير</h3>
+    <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;">
+      إلى: <b>${p.debtorName}</b> · <span dir="ltr">${p.phone}</span>
+    </p>
+    <div class="field">
+      <label>نص الرسالة (تقدر تعدّله قبل الإرسال)</label>
+      <textarea id="claimPreviewText" rows="7" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;font-size:14px;line-height:1.9;">${p.message}</textarea>
+    </div>
+    <p style="font-size:11px;color:var(--text-faint);margin-bottom:12px;">💡 التعديل هون يطبّق على هذي الرسالة فقط. لتغيير الصياغة لكل الرسائل، عدّل القالب من أسفل صفحة المطالبات.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="cancelClaimPreview" style="flex:1;">إلغاء</button>
+      <button type="button" class="btn btn-primary" id="confirmSendReminder" style="flex:2;">إرسال عبر واتساب</button>
+    </div>
+  </div></div>`;
+}
+
+function claimTemplateEditor(){
+  const s = state.settings || {};
+  const tpl = s.claimReminderTemplate || 'مرحبًا {الاسم}،\nتذكير من *سوبر آبل*: لديك مبلغ مستحق قدره *{المبلغ}*{الوصف}{تاريخ_الاستحقاق}.\nيرجى التواصل معنا لتسوية الحساب. شكرًا لتعاونك 🌟';
+  return `
+  <div class="card" style="margin-top:16px;">
+    <div class="section-title">✍️ قالب رسالة التذكير</div>
+    <p style="font-size:12.5px;color:var(--text-muted);line-height:1.9;margin-bottom:12px;">
+      عدّل الصياغة مرة وحدة، وبتنطبق على كل رسائل التذكير. المتغيرات تحت بتنستبدل تلقائيًا ببيانات كل شركة.
+    </p>
+    <div style="background:var(--surface-2);border-radius:var(--radius-sm);padding:12px;margin-bottom:14px;font-size:12px;line-height:2.1;">
+      <div><code style="background:var(--surface);padding:2px 6px;border-radius:4px;">{الاسم}</code> اسم الشركة</div>
+      <div><code style="background:var(--surface);padding:2px 6px;border-radius:4px;">{المبلغ}</code> المبلغ المتبقي</div>
+      <div><code style="background:var(--surface);padding:2px 6px;border-radius:4px;">{المبلغ_الكلي}</code> · <code style="background:var(--surface);padding:2px 6px;border-radius:4px;">{المدفوع}</code></div>
+      <div style="color:var(--text-faint);"><code style="background:var(--surface);padding:2px 6px;border-radius:4px;">{الوصف}</code> · <code style="background:var(--surface);padding:2px 6px;border-radius:4px;">{تاريخ_الاستحقاق}</code> — اختياريان، بيختفوا تلقائيًا لو فاضيين</div>
+    </div>
+    <form id="claimTemplateForm">
+      <div class="field">
+        <textarea name="template" rows="6" style="width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface-2);font-family:inherit;font-size:14px;line-height:1.9;">${tpl}</textarea>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn btn-ghost" id="resetClaimTemplate" style="flex:1;">استعادة الافتراضي</button>
+        <button type="submit" class="btn btn-primary" style="flex:2;">حفظ القالب</button>
+      </div>
+    </form>
+  </div>`;
 }
 
 function claimImportPanel(){
@@ -3933,6 +4003,16 @@ function attachAppEvents(){
   document.getElementById('closeResetPassModal')?.addEventListener('click', ()=>{ state.resetPassModal = null; render(); });
   document.getElementById('resetPassModalBg')?.addEventListener('click', (e)=>{ if(e.target.id==='resetPassModalBg'){ state.resetPassModal=null; render(); }});
   document.getElementById('resetPassForm')?.addEventListener('submit', handleResetPassword);
+  document.getElementById('cancelClaimPreview')?.addEventListener('click', ()=>{ state.claimPreview=null; render(); });
+  document.getElementById('claimPreviewBg')?.addEventListener('click', (e)=>{ if(e.target.id==='claimPreviewBg'){ state.claimPreview=null; render(); }});
+  document.getElementById('confirmSendReminder')?.addEventListener('click', handleConfirmSendReminder);
+  document.getElementById('claimTemplateForm')?.addEventListener('submit', handleSaveClaimTemplate);
+  document.getElementById('resetClaimTemplate')?.addEventListener('click', async ()=>{
+    if(!confirm('استعادة القالب الافتراضي؟')) return;
+    await apiPost('updateClaimTemplate', { template: '' });
+    await refresh();
+    showToast('تم استعادة القالب الافتراضي');
+  });
   document.getElementById('openClaimImport')?.addEventListener('click', ()=>{ state.claimImportOpen = true; state.claimImportRows = []; render(); });
   document.getElementById('closeClaimImport')?.addEventListener('click', ()=>{ state.claimImportOpen = false; state.claimImportRows = []; render(); });
   document.getElementById('cancelClaimImport')?.addEventListener('click', ()=>{ state.claimImportOpen = false; state.claimImportRows = []; render(); });

@@ -485,3 +485,41 @@ function checkGeofence($pdo, $lat, $lng) {
 
     return ['allowed' => true, 'error' => null, 'distance' => (int) round($distance)];
 }
+
+/* =========================================================
+   قالب رسالة تذكير المطالبات المالية
+   القالب قابل للتعديل من لوحة الإدارة، ويدعم متغيرات تُستبدل تلقائيًا.
+   ========================================================= */
+
+const DEFAULT_CLAIM_TEMPLATE = "مرحبًا {الاسم}،\nتذكير من *سوبر آبل*: لديك مبلغ مستحق قدره *{المبلغ}*{الوصف}{تاريخ_الاستحقاق}.\nيرجى التواصل معنا لتسوية الحساب. شكرًا لتعاونك 🌟";
+
+/**
+ * يبني نص التذكير من القالب المحفوظ + بيانات المطالبة.
+ * المتغيرات الاختيارية (الوصف/التاريخ) تُستبدل بفراغ تام لو مش موجودة،
+ * فما تظهر أبدًا كعلامات فاضية أو "غير محدد".
+ */
+function buildClaimReminderMessage($pdo, $claim) {
+    $s = $pdo->query("SELECT claim_reminder_template FROM settings WHERE id = 1")->fetch();
+    $template = (!empty($s['claim_reminder_template'])) ? $s['claim_reminder_template'] : DEFAULT_CLAIM_TEMPLATE;
+
+    $remaining = round($claim['amount'] - $claim['paid_amount'], 2);
+    $name = trim($claim['debtor_name'] ?? '');
+    $desc = trim($claim['description'] ?? '');
+    $due = !empty($claim['due_date']) ? date('d/m/Y', strtotime($claim['due_date'])) : '';
+
+    $replacements = [
+        '{الاسم}' => $name !== '' ? $name : 'عميلنا الكريم',
+        '{المبلغ}' => number_format($remaining, 2, '.', ',') ,
+        '{المبلغ_الكلي}' => number_format((float) $claim['amount'], 2, '.', ','),
+        '{المدفوع}' => number_format((float) $claim['paid_amount'], 2, '.', ','),
+        // الحقول الاختيارية: تشمل صياغتها الكاملة داخلها، أو فراغ تام لو غير موجودة
+        '{الوصف}' => $desc !== '' ? " بخصوص \"{$desc}\"" : '',
+        '{تاريخ_الاستحقاق}' => $due !== '' ? " (تاريخ الاستحقاق {$due})" : '',
+    ];
+
+    $msg = strtr($template, $replacements);
+    // تنظيف أي فراغات مزدوجة نتجت عن استبدال متغير فارغ
+    $msg = preg_replace('/[ \t]{2,}/', ' ', $msg);
+    $msg = preg_replace('/\n{3,}/', "\n\n", $msg);
+    return trim($msg);
+}

@@ -174,7 +174,8 @@ switch ($action) {
             geofence_enabled AS geofenceEnabled, office_latitude AS officeLatitude,
             office_longitude AS officeLongitude, geofence_radius AS geofenceRadius,
             motivation_enabled AS motivationEnabled, motivation_delay_minutes AS motivationDelayMinutes, motivation_daily_count AS motivationDailyCount,
-            auto_checkout_enabled AS autoCheckoutEnabled, checkout_reminder_enabled AS checkoutReminderEnabled
+            auto_checkout_enabled AS autoCheckoutEnabled, checkout_reminder_enabled AS checkoutReminderEnabled,
+            claim_reminder_template AS claimReminderTemplate
             FROM settings WHERE id = 1")->fetch();
 
         $payload = ['hasUsers' => $hasUsers, 'currentUser' => $currentUser, 'settings' => $settingsRow ?: null];
@@ -895,23 +896,39 @@ switch ($action) {
         if (!$claim) respond(['error' => 'المطالبة غير موجودة'], 404);
         if (empty($claim['debtor_phone'])) respond(['error' => 'لا يوجد رقم واتساب مسجّل لهذا المدين'], 400);
 
-        $remaining = round($claim['amount'] - $claim['paid_amount'], 2);
-        $name = trim($claim['debtor_name'] ?? '');
-        $desc = trim($claim['description'] ?? '');
-
-        // نبني الرسالة من المتوفر فقط — أي حقل فاضي يُتجاهل بدل ما يظهر كفراغ ""
-        $greeting = $name !== '' ? "مرحبًا {$name}،" : "مرحبًا،";
-        $message = "{$greeting}\n";
-        $message .= "تذكير من *سوبر آبل*: لديك مبلغ مستحق قدره *{$remaining}*";
-        if ($desc !== '') $message .= " بخصوص \"{$desc}\"";
-        if (!empty($claim['due_date'])) {
-            $message .= "، تاريخ الاستحقاق " . date('d/m/Y', strtotime($claim['due_date']));
-        }
-        $message .= ".\nيرجى التواصل معنا لتسوية الحساب. شكرًا لتعاونك 🌟";
+        // لو المستخدم عدّل النص بنافذة المعاينة، نستخدم نصه؛ وإلا نبني من القالب المحفوظ
+        $custom = trim($b['customMessage'] ?? '');
+        $message = $custom !== '' ? mb_substr($custom, 0, 3000) : buildClaimReminderMessage($pdo, $claim);
 
         $result = sendWhatsAppCloud($pdo, $claim['debtor_phone'], $message);
         $pdo->prepare("INSERT INTO claim_reminders (claim_id, success) VALUES (?, ?)")->execute([$claim['id'], $result['success'] ? 1 : 0]);
         if (!$result['success']) respond(['error' => $result['error']], 400);
+        respond(['success' => true]);
+    }
+
+    // معاينة نص التذكير قبل الإرسال (بدون ما يُرسل شي)
+    case 'previewClaimReminder': {
+        requireClaimsAccess($pdo);
+        $b = bodyInput();
+        $stmt = $pdo->prepare("SELECT * FROM financial_claims WHERE id = ?");
+        $stmt->execute([$b['id'] ?? 0]);
+        $claim = $stmt->fetch();
+        if (!$claim) respond(['error' => 'المطالبة غير موجودة'], 404);
+        respond([
+            'message' => buildClaimReminderMessage($pdo, $claim),
+            'debtorName' => $claim['debtor_name'],
+            'phone' => $claim['debtor_phone'],
+            'hasPhone' => !empty($claim['debtor_phone']),
+        ]);
+    }
+
+    case 'updateClaimTemplate': {
+        requireClaimsAccess($pdo);
+        $b = bodyInput();
+        $tpl = trim($b['template'] ?? '');
+        // قالب فاضي = رجوع للقالب الافتراضي
+        $pdo->prepare("UPDATE settings SET claim_reminder_template = ? WHERE id = 1")
+            ->execute([$tpl !== '' ? mb_substr($tpl, 0, 3000) : null]);
         respond(['success' => true]);
     }
 

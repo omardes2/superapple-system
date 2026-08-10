@@ -321,7 +321,8 @@ CREATE TABLE IF NOT EXISTS settings (
   motivation_delay_minutes INT NOT NULL DEFAULT 60,
   motivation_daily_count INT NOT NULL DEFAULT 2,
   auto_checkout_enabled TINYINT(1) NOT NULL DEFAULT 0,
-  checkout_reminder_enabled TINYINT(1) NOT NULL DEFAULT 0
+  checkout_reminder_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  claim_reminder_template TEXT DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO settings (id) VALUES (1)
