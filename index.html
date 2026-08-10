@@ -327,6 +327,12 @@
 
 const API = 'api/index.php';
 
+/* ============================================================
+   إخفاء نظام الدوام والإجازات والرسائل التحفيزية
+   غيّرها لـ true لإرجاع كل شي زي ما كان (الكود والبيانات محفوظة بالكامل).
+   ============================================================ */
+const ATTENDANCE_ENABLED = false;
+
 let state = {
   users: [], tasks: [], attendance: [], points: [], notifications: [], settings: null,
   clients: [], leaveRequests: [], departments: [], waLog: [], openTaskId: null, taskComments: [], claims: [], claimReminderLog: [], claimReminderLogFor: null, waConversations: [], waThread: [], waActivePhone: null, waConversationsLoaded: false, teamChat: [], teamChatLastId: 0, teamChatOpen: false, teamChatUnreadCount: 0, prompts: [], promptFilter: 'all', promptFormOpen: false, projects: [], openProjectId: null, projectModal: false, projectFilterTab: 'all', taskStatusLog: [], attachmentsByEntity: {}, projectActivity: [], projectDetail: null, executiveDashboard: null, workload: [], unreadNotifCount: 0, notifDropdownOpen: false, mentionSuggestions: [], mentionDropdownOpen: false, taskMentionable: [], motivationMessages: [], motivationSentToday: 0, myPasswordModal: false, resetPassModal: null, claimImportOpen: false, claimImportRows: [], claimPreview: null, claimImportHeaders: [], claimImportCols: {}, claimImportRaw: [],
@@ -1575,7 +1581,7 @@ function renderAdmin(){
     {key:'clients', icon:'clients', label:'العملاء'},
     {key:'departments', icon:'departments', label:'الأقسام'},
     {key:'employees', icon:'employees', label:'الموظفون'},
-    {key:'attendance', icon:'attendance', label:'الدوام والإجازات'},
+    ...(ATTENDANCE_ENABLED ? [{key:'attendance', icon:'attendance', label:'الدوام والإجازات'}] : []),
     {key:'rewards', icon:'rewards', label:'النقاط والمكافآت'},
     {key:'reports', icon:'reports', label:'التقارير'},
     {key:'workload', icon:'rewards', label:'ضغط العمل'},
@@ -1583,7 +1589,7 @@ function renderAdmin(){
     {key:'whatsapp', icon:'whatsapp', label:'ربط واتساب'},
     {key:'inbox', icon:'notifications', label:'صندوق الرسائل'},
     {key:'prompts', icon:'prompts', label:'مكتبة البرومبتات'},
-    {key:'motivation', icon:'rewards', label:'الرسائل التحفيزية'},
+    ...(ATTENDANCE_ENABLED ? [{key:'motivation', icon:'rewards', label:'الرسائل التحفيزية'}] : []),
     {key:'notifications', icon:'notifications', label:'الإشعارات'},
   ];
   return `
@@ -1687,13 +1693,13 @@ function executiveAttentionSection(){
   if(!d) return `<div class="card" style="margin-bottom:16px;"><div class="empty">جارِ تحميل ملخص اليوم...</div></div>`;
 
   const items = [];
-  if(d.attendance.late.length>0) items.push({icon:'⏰', color:'var(--warning)', text:`${d.attendance.late.length} موظف متأخر اليوم`, sub:d.attendance.late.map(x=>x.userName).join('، '), tab:'attendance'});
-  if(d.attendance.absent.length>0) items.push({icon:'❌', color:'var(--danger)', text:`${d.attendance.absent.length} موظف غائب حتى الآن`, sub:d.attendance.absent.map(x=>x.userName).join('، '), tab:'attendance'});
+  if(ATTENDANCE_ENABLED && d.attendance.late.length>0) items.push({icon:'⏰', color:'var(--warning)', text:`${d.attendance.late.length} موظف متأخر اليوم`, sub:d.attendance.late.map(x=>x.userName).join('، '), tab:'attendance'});
+  if(ATTENDANCE_ENABLED && d.attendance.absent.length>0) items.push({icon:'❌', color:'var(--danger)', text:`${d.attendance.absent.length} موظف غائب حتى الآن`, sub:d.attendance.absent.map(x=>x.userName).join('، '), tab:'attendance'});
   if(d.tasks.overdue.length>0) items.push({icon:'🔴', color:'var(--danger)', text:`${d.tasks.overdue.length} مهمة متأخرة`, sub:d.tasks.overdue.slice(0,3).map(x=>x.title).join('، '), tab:'tasks'});
   if(d.tasks.dueToday.length>0) items.push({icon:'📅', color:'var(--warning)', text:`${d.tasks.dueToday.length} مهمة موعدها اليوم`, sub:d.tasks.dueToday.slice(0,3).map(x=>x.title).join('، '), tab:'tasks'});
   if(d.tasks.readyForReview.length>0) items.push({icon:'🟣', color:'#6B3FD1', text:`${d.tasks.readyForReview.length} مهمة بانتظار مراجعتك`, sub:d.tasks.readyForReview.slice(0,3).map(x=>x.title).join('، '), tab:'tasks'});
   if(d.tasks.changesRequested.length>0) items.push({icon:'🟡', color:'var(--warning)', text:`${d.tasks.changesRequested.length} مهمة طُلب تعديلها`, sub:d.tasks.changesRequested.slice(0,3).map(x=>x.title).join('، '), tab:'tasks'});
-  if(d.leaveRequests.pending.length>0) items.push({icon:'🏖️', color:'var(--warning)', text:`${d.leaveRequests.pending.length} طلب إجازة بانتظار المراجعة`, sub:d.leaveRequests.pending.map(x=>x.userName).join('، '), tab:'attendance'});
+  if(ATTENDANCE_ENABLED && d.leaveRequests.pending.length>0) items.push({icon:'🏖️', color:'var(--warning)', text:`${d.leaveRequests.pending.length} طلب إجازة بانتظار المراجعة`, sub:d.leaveRequests.pending.map(x=>x.userName).join('، '), tab:'attendance'});
   if(d.financial && (d.financial.dueTodayCount>0 || d.financial.overdueCount>0)) {
     items.push({icon:'💰', color:'var(--danger)', text:`مطالبات مالية تحتاج متابعة: ${d.financial.dueTodayCount} اليوم، ${d.financial.overdueCount} متأخرة`, sub:`إجمالي متأخر: ${d.financial.overdueAmount.toLocaleString()}`, tab:'claims'});
   }
@@ -1748,7 +1754,7 @@ function adminDashboard(){
 
   return `
   ${executiveAttentionSection()}
-  ${pendingLeaves.length>0?`
+  ${ATTENDANCE_ENABLED && pendingLeaves.length>0?`
   <div class="whatsapp-banner" style="background:var(--warning-tint);border-color:rgba(217,121,26,0.3);color:#8A4E0E;cursor:pointer;" id="pendingLeavesBanner">
     🏖️ <div style="flex:1;"><b>${pendingLeaves.length} طلب إجازة بانتظار المراجعة:</b>
       ${pendingLeaves.slice(0,3).map(l=>{const u=state.users.find(u=>u.id===l.userId);return u?u.name:'';}).join('، ')}${pendingLeaves.length>3?` +${pendingLeaves.length-3} آخرين`:''}
@@ -1822,6 +1828,7 @@ function adminDashboard(){
           <div style="font-weight:800;color:var(--primary);">${t.pts}</div>
         </div>`).join('')}
     </div>
+    ${ATTENDANCE_ENABLED?`
     <div class="card">
       <div class="section-title">حالة الفريق اليوم</div>
       ${employees.length===0?`<div class="empty">لا يوجد موظفون بعد.</div>`:`
@@ -1830,7 +1837,7 @@ function adminDashboard(){
         return `<div class="assignee-row"><span>${e.name}</span>${r?statusBadge(r.status):'<span class="badge badge-muted">لم يسجل</span>'}</div>`;
       }).join('')}
       <p style="font-size:11.5px;color:var(--text-faint);margin-top:10px;">${present} حاضر / ${late} متأخر / ${noRecord} لم يسجل</p>`}
-    </div>
+    </div>`:''}
   </div>`;
 }
 
@@ -3400,7 +3407,7 @@ function renderEmployee(){
   const nav = [
     {key:'dashboard', icon:'home', label:'الرئيسية'},
     {key:'tasks', icon:'tasks', label:'مهامي'},
-    {key:'attendance', icon:'attendance', label:'دوامي وإجازاتي'},
+    ...(ATTENDANCE_ENABLED ? [{key:'attendance', icon:'attendance', label:'دوامي وإجازاتي'}] : []),
     {key:'points', icon:'rewards', label:'نقاطي'},
     {key:'report', icon:'reports', label:'تقريري الشهري'},
     ...(state.currentUser.canSendClaims ? [{key:'claims', icon:'claims', label:'تذكيرات المطالبات'}] : []),
@@ -3462,7 +3469,7 @@ function empDashboard(){
   const pending = myTasks.filter(t=>taskStatus(t)!=='done');
   return `
   <div class="grid grid-2">
-    ${attendanceCard(rec)}
+    ${ATTENDANCE_ENABLED ? attendanceCard(rec) : ''}
     <div class="card">
       <div class="stat-label">رصيد نقاطك</div>
       <div class="stat-value" style="color:var(--primary);font-size:34px;">${userPoints(state.currentUser.id)}</div>
@@ -3623,10 +3630,12 @@ function empReport(){
   const r = monthlyReport(state.currentUser.id);
   const shortfall = r.totalHours < r.requiredHours;
   return `
-  <div class="grid grid-4">
+  <div class="grid ${ATTENDANCE_ENABLED?'grid-4':'grid-2'}">
+    ${ATTENDANCE_ENABLED?`
     <div class="card stat-card"><div class="stat-label">أيام الحضور</div><div class="stat-value" style="color:var(--success)">${r.present}</div></div>
     <div class="card stat-card"><div class="stat-label">أيام التأخير</div><div class="stat-value" style="color:var(--warning)">${r.late}</div></div>
-    <div class="card stat-card"><div class="stat-label">ساعات العمل الفعلية</div><div class="stat-value" style="color:${shortfall?'var(--warning)':'var(--success)'}">${r.totalHours}<span style="font-size:13px;color:var(--text-faint);"> / ${r.requiredHours}س</span></div></div>
+    <div class="card stat-card"><div class="stat-label">ساعات العمل الفعلية</div><div class="stat-value" style="color:${shortfall?'var(--warning)':'var(--success)'}">${r.totalHours}<span style="font-size:13px;color:var(--text-faint);"> / ${r.requiredHours}س</span></div></div>`:''}
+    <div class="card stat-card"><div class="stat-label">المهام المنجزة</div><div class="stat-value" style="color:var(--success)">${r.completed}</div></div>
     <div class="card stat-card"><div class="stat-label">نقاط الشهر</div><div class="stat-value" style="color:var(--primary)">${r.points}</div></div>
   </div>
   <div class="card" style="margin-top:16px;">

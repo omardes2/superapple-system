@@ -15,6 +15,9 @@ define('CRON_SECRET', 'change-this-secret-key-123');
 
 header('Content-Type: text/plain; charset=utf-8');
 
+// 🔕 نظام الدوام مخفي حاليًا — غيّرها لـ true لإرجاع كل أتمتة الدوام والرسائل التحفيزية
+define('ATTENDANCE_AUTOMATION_ENABLED', false);
+
 if (($_GET['key'] ?? '') !== CRON_SECRET) {
     http_response_code(403);
     die('ممنوع: مفتاح غير صحيح');
@@ -35,6 +38,7 @@ $today = date('Y-m-d');
    ============================================================ */
 $motivSent = 0;
 try {
+    if (!ATTENDANCE_AUTOMATION_ENABLED) throw new \Exception('skip');
     $ms = $pdo->query("SELECT motivation_enabled, motivation_delay_minutes, motivation_daily_count FROM settings WHERE id = 1")->fetch();
     if ($ms && (int) $ms['motivation_enabled']) {
         $delayMin = max(0, (int) $ms['motivation_delay_minutes']);
@@ -99,6 +103,11 @@ try {
 }
 
 
+// نظام الدوام مخفي — نوقف هون قبل تنبيهات التأخير
+if (!ATTENDANCE_AUTOMATION_ENABLED) {
+    die('نظام الدوام معطّل حاليًا — تم تخطي كل أتمتة الحضور في ' . date('Y-m-d H:i:s'));
+}
+
 // الجمعة عطلة رسمية بالشركة — لا تنبيهات تأخير فيها
 if (date('N') == 5) {
     die('اليوم جمعة (عطلة) — تم تخطي فحص التأخير، وتم إرسال الرسائل التحفيزية إن وُجدت.');
@@ -143,6 +152,7 @@ foreach ($employees as $emp) {
 $checkoutReminders = 0;
 $autoClosed = 0;
 try {
+    if (!ATTENDANCE_AUTOMATION_ENABLED) throw new \Exception('skip');
     $cs = $pdo->query("SELECT auto_checkout_enabled, checkout_reminder_enabled FROM settings WHERE id = 1")->fetch();
     $remindOn = $cs && (int) $cs['checkout_reminder_enabled'];
     $autoOn = $cs && (int) $cs['auto_checkout_enabled'];
